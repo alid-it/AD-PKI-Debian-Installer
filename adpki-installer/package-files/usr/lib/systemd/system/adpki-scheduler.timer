@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AD-PKI Scheduler every minute
+Requires=adpki-scheduler.service
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Unit=adpki-scheduler.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

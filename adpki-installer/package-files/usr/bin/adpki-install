@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALLER_DIR="/usr/lib/adpki/installer"
+COMMON="${INSTALLER_DIR}/common.sh"
+STEPS_DIR="${INSTALLER_DIR}/steps"
+
+if [ ! -f "$COMMON" ]; then
+    echo "AD-PKI Installer common.sh nicht gefunden: $COMMON"
+    exit 1
+fi
+
+. "$COMMON"
+
+require_root
+setup_logging "adpki-install"
+detect_os
+detect_arch
+
+ADPKI_WEB_SERVER="nginx"
+
+echo
+echo "AD-PKI Datenbankauswahl"
+echo "======================="
+echo
+echo "1) Vorhandenen PostgreSQL-Server verwenden"
+echo "2) Neuen lokalen PostgreSQL-Server installieren und verwenden"
+echo
+
+read -rp "Auswahl [1/2]: " DB_CHOICE
+
+case "$DB_CHOICE" in
+    1)
+        ADPKI_DB_MODE="existing"
+        ;;
+    2)
+        ADPKI_DB_MODE="local"
+        ;;
+    *)
+        echo "Ungültige Auswahl."
+        exit 1
+        ;;
+esac
+
+echo
+echo "Gewählt: $(db_mode_label)"
+
+write_env
+
+echo
+echo "Starte AD-PKI Runtime-Installation..."
+
+for step in \
+    "00-preflight.sh" \
+    "10-webserver.sh" \
+    "20-postgresql.sh" \
+    "30-php.sh" \
+    "40-node.sh" \
+    "90-configure-adpki.sh"
+    #"50-go.sh"
+do
+    STEP_PATH="${STEPS_DIR}/${step}"
+
+    if [ ! -x "$STEP_PATH" ]; then
+        echo "Fehler: Step fehlt oder ist nicht ausführbar: $STEP_PATH"
+        exit 1
+    fi
+
+    echo
+    echo "============================================================"
+    echo "Running step: ${step}"
+    echo "============================================================"
+    echo
+
+    "$STEP_PATH"
+done
+
+mark_runtime_installed
+
+echo
+echo "************************************************************"
+echo "*                                                          *"
+echo "*        AD-PKI Runtime erfolgreich installiert            *"
+echo "*                                                          *"
+echo "*  Installierte Komponenten:                               *"
+echo "*                                                          *"
+echo "*  Webserver:   nginx                                      *"
+echo "*  PHP:         ${PHP_VERSION_POLICY_LABEL}"
+echo "*  Node.js:     ${NODE_VERSION}"
+echo "*  Go:          ${GO_VERSION}"
+echo "*  PostgreSQL:  ${POSTGRES_VERSION_POLICY_LABEL}"
+echo "*                                                          *"
+echo "*  Datenbankmodus: $(db_mode_label)"
+echo "*                                                          *"
+echo "************************************************************"
+echo
+echo "Nächster Schritt:"
+echo
+echo "  sudo adpki-setup"
+echo
+echo "Der Setup-Wizard führt nun die fachliche Erstkonfiguration durch:"
+echo
+echo "  - Datenbankverbindung einrichten"
+echo "  - Datenbankschema importieren"
+echo "  - Root CA importieren"
+echo "  - Intermediate CA importieren"
+echo "  - Admin-Benutzer erstellen"
+echo "  - Scheduler und Systemdienste prüfen"
+echo

@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+
+has_systemd() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+
+case "$1" in
+    remove|deconfigure)
+        if has_systemd; then
+            systemctl stop    adpki-scheduler.timer   >/dev/null 2>&1 || true
+            systemctl stop    adpki-worker.service    >/dev/null 2>&1 || true
+            systemctl stop    adpki-ca.service        >/dev/null 2>&1 || true
+            systemctl disable adpki-scheduler.timer   >/dev/null 2>&1 || true
+            systemctl disable adpki-worker.service    >/dev/null 2>&1 || true
+            systemctl disable adpki-ca.service        >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0

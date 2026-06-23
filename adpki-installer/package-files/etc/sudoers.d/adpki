@@ -1,0 +1,1 @@
+adpki ALL=(root) NOPASSWD: /usr/sbin/adpki-set-ntp

@@ -1,0 +1,493 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================
+# AD-PKI Updater
+# ============================================================
+
+GITHUB_ORG="alid-it"
+BACKUP_DIR="/var/lib/adpki/backups"
+LOG_FILE="/var/log/adpki/installer/update.log"
+
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+RESET="\033[0m"
+
+log()  { echo -e "$1" | tee -a "$LOG_FILE"; }
+ok()   { log "${GREEN}✅ $1${RESET}"; }
+err()  { log "${RED}❌ $1${RESET}"; exit 1; }
+warn() { log "${YELLOW}⚠️  $1${RESET}"; }
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Bitte als root ausführen: sudo adpki-update"
+    exit 1
+fi
+
+mkdir -p "$(dirname "$LOG_FILE")"
+echo "=== AD-PKI Update $(date -Is) ===" >> "$LOG_FILE"
+
+# ============================================================
+# Helper
+# ============================================================
+
+get_github_latest() {
+    local repo="$1"
+
+    curl -fsSL "https://api.github.com/repos/${GITHUB_ORG}/${repo}/releases/latest" \
+        | grep '"tag_name"' \
+        | cut -d'"' -f4 \
+        | head -1
+}
+
+get_local_version() {
+    local component="$1"
+    local version_file
+
+    case "$component" in
+        ca)       version_file="/opt/adpki/ca-core/VERSION" ;;
+        backend)  version_file="/opt/adpki/backend/VERSION" ;;
+        frontend) version_file="/opt/adpki/frontend/dist/VERSION" ;;
+        *)        echo "unknown"; return ;;
+    esac
+
+    if [ -f "$version_file" ]; then
+        cat "$version_file"
+    else
+        echo "unknown"
+    fi
+}
+
+download_verified_release_asset() {
+    local name="$1"
+    local repo="$2"
+    local asset_name="$3"
+    local extract_dest="$4"
+
+    local api_url asset_url sha_url tmp_dir archive_path sums_path
+
+    api_url="https://api.github.com/repos/${GITHUB_ORG}/${repo}/releases/latest"
+    tmp_dir="$(mktemp -d)"
+    archive_path="${tmp_dir}/${asset_name}"
+    sums_path="${tmp_dir}/SHA256SUMS"
+
+    log "Suche Release-Asset für ${name}..."
+
+    asset_url="$(curl -fsSL "$api_url" \
+        | grep "browser_download_url.*${asset_name}\"" \
+        | cut -d'"' -f4 \
+        | head -1)"
+
+    sha_url="$(curl -fsSL "$api_url" \
+        | grep "browser_download_url.*SHA256SUMS\"" \
+        | cut -d'"' -f4 \
+        | head -1)"
+
+    if [ -z "$asset_url" ]; then
+        rm -rf "$tmp_dir"
+        err "Release-Asset nicht gefunden: ${asset_name}"
+    fi
+
+    if [ -z "$sha_url" ]; then
+        rm -rf "$tmp_dir"
+        err "SHA256SUMS nicht gefunden für ${name}"
+    fi
+
+    log "Lade ${name} herunter..."
+    curl -fL --progress-bar -o "$archive_path" "$asset_url"
+
+    log "Lade SHA256SUMS für ${name}..."
+    curl -fsSL -o "$sums_path" "$sha_url"
+
+    if ! awk -v file="$asset_name" '
+        {
+            candidate=$2
+            sub(/^\*/, "", candidate)
+            if (candidate == file) found=1
+        }
+        END { exit found ? 0 : 1 }
+    ' "$sums_path"; then
+        rm -rf "$tmp_dir"
+        err "${asset_name} ist nicht in SHA256SUMS enthalten."
+    fi
+
+    log "Prüfe SHA256 für ${name}..."
+
+    (
+        cd "$tmp_dir"
+
+        awk -v file="$asset_name" '
+            {
+                candidate=$2
+                sub(/^\*/, "", candidate)
+                if (candidate == file) print $0
+            }
+        ' SHA256SUMS | sha256sum -c -
+    ) || {
+        rm -rf "$tmp_dir"
+        err "SHA256-Prüfung fehlgeschlagen: ${name}"
+    }
+
+    log "Entpacke ${name}..."
+
+    mkdir -p "$extract_dest"
+    tar -xzf "$archive_path" -C "$extract_dest"
+
+    rm -rf "$tmp_dir"
+
+    ok "${name} erfolgreich geprüft und entpackt."
+}
+
+# ============================================================
+# Aktuelle Versionen ermitteln
+# ============================================================
+
+echo
+echo "========================================"
+echo "  AD-PKI Updater"
+echo "========================================"
+echo
+
+log "Prüfe verfügbare Updates..."
+echo
+
+CA_LATEST="$(get_github_latest AD-PKI-CA)"
+BACKEND_LATEST="$(get_github_latest AD-PKI-Backend)"
+FRONTEND_LATEST="$(get_github_latest AD-PKI-Frontend)"
+
+if [ -z "$CA_LATEST" ] || [ -z "$BACKEND_LATEST" ] || [ -z "$FRONTEND_LATEST" ]; then
+    err "GitHub API nicht erreichbar oder kein Release gefunden."
+fi
+
+CA_LOCAL="$(get_local_version ca)"
+BACKEND_LOCAL="$(get_local_version backend)"
+FRONTEND_LOCAL="$(get_local_version frontend)"
+
+printf "  %-12s %-18s %-18s\n" "Komponente" "Lokal" "GitHub Latest"
+printf "  %-12s %-18s %-18s\n" "----------" "-----" "-------------"
+printf "  %-12s %-18s %-18s\n" "CA"       "$CA_LOCAL"       "$CA_LATEST"
+printf "  %-12s %-18s %-18s\n" "Backend"  "$BACKEND_LOCAL"  "$BACKEND_LATEST"
+printf "  %-12s %-18s %-18s\n" "Frontend" "$FRONTEND_LOCAL" "$FRONTEND_LATEST"
+echo
+
+if [ "$CA_LOCAL" = "$CA_LATEST" ] && [ "$BACKEND_LOCAL" = "$BACKEND_LATEST" ] && [ "$FRONTEND_LOCAL" = "$FRONTEND_LATEST" ]; then
+    ok "Alle Komponenten sind aktuell. Kein Update erforderlich."
+    exit 0
+fi
+
+read -rp "Update auf diese Versionen durchführen? (y/n): " CONFIRM
+
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "Abgebrochen."
+    exit 0
+fi
+
+# ============================================================
+# 1. Datenbank-Backup
+# ============================================================
+
+echo
+log "Erstelle Datenbank-Backup..."
+
+mkdir -p "$BACKUP_DIR"
+BACKUP_FILE="${BACKUP_DIR}/adpki_pre_update_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+if command -v pg_dump >/dev/null 2>&1; then
+    sudo -u postgres pg_dump adpki | gzip > "$BACKUP_FILE"
+    chmod 640 "$BACKUP_FILE"
+    chown adpki:adpki "$BACKUP_FILE"
+    ok "DB-Backup: ${BACKUP_FILE}"
+else
+    warn "pg_dump nicht gefunden — Backup übersprungen!"
+
+    read -rp "Ohne Backup fortfahren? (y/n): " CONFIRM_NO_BACKUP
+
+    if [[ ! "$CONFIRM_NO_BACKUP" =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# ============================================================
+# 2. Services stoppen
+# ============================================================
+
+log "Stoppe AD-PKI Services..."
+
+systemctl stop adpki-reverb.service 2>/dev/null || true
+systemctl stop adpki-worker.service 2>/dev/null || true
+systemctl stop adpki-ca.service 2>/dev/null || true
+
+ok "Services gestoppt."
+
+# ============================================================
+# 3. CA Binary Update
+# ============================================================
+
+log "Update CA-Binary..."
+
+mkdir -p /opt/adpki/ca-core
+
+download_verified_release_asset \
+    "AD-PKI CA" \
+    "AD-PKI-CA" \
+    "ad-pki-ca.tar.gz" \
+    "/opt/adpki/ca-core"
+
+chmod 0755 /opt/adpki/ca-core/adpki-ca
+chown adpki:adpki /opt/adpki/ca-core/adpki-ca
+echo "$CA_LATEST" > /opt/adpki/ca-core/VERSION
+chown adpki:adpki /opt/adpki/ca-core/VERSION
+chmod 640 /opt/adpki/ca-core/VERSION
+
+ok "CA-Binary aktualisiert."
+
+# ============================================================
+# 4. Backend Update
+# ============================================================
+
+log "Update Backend..."
+
+mkdir -p /opt/adpki/backend
+
+# .env sichern, falls sie existiert
+cp /opt/adpki/backend/.env /tmp/adpki-backend-env.bak 2>/dev/null || true
+
+# Alte Dateien entfernen, aber Runtime-Daten erhalten
+find /opt/adpki/backend -mindepth 1 -maxdepth 1 \
+    ! -name 'storage' \
+    ! -name 'vendor' \
+    ! -name '.env' \
+    -exec rm -rf {} \;
+
+download_verified_release_asset \
+    "AD-PKI Backend" \
+    "AD-PKI-Backend" \
+    "ad-pki-backend.tar.gz" \
+    "/opt/adpki/backend"
+
+# .env-Symlink wieder sauber setzen
+if [ -f /etc/adpki/backend.env ]; then
+    ln -sfn /etc/adpki/backend.env /opt/adpki/backend/.env
+    chown -h adpki:www-data /opt/adpki/backend/.env || true
+elif [ -f /tmp/adpki-backend-env.bak ]; then
+    cp /tmp/adpki-backend-env.bak /opt/adpki/backend/.env
+fi
+
+# Composer Dependencies
+log "Installiere PHP-Abhängigkeiten..."
+
+mkdir -p /var/lib/adpki/.composer-cache
+chown -R www-data:www-data /var/lib/adpki/.composer-cache
+
+mkdir -p /opt/adpki/backend/vendor
+chown -R www-data:www-data /opt/adpki/backend/vendor
+
+runuser -u www-data -- env COMPOSER_HOME=/var/lib/adpki/.composer-cache composer install \
+    --no-dev \
+    --optimize-autoloader \
+    --no-interaction \
+    --working-dir=/opt/adpki/backend
+
+echo "$BACKEND_LATEST" > /opt/adpki/backend/VERSION
+chown adpki:www-data /opt/adpki/backend/VERSION
+chmod 640 /opt/adpki/backend/VERSION
+
+ok "Backend aktualisiert."
+
+# ============================================================
+# 5. Migrationen prüfen und ausführen
+# ============================================================
+
+log "Prüfe Datenbank-Migrationen..."
+
+PENDING="$(runuser -u www-data -- php /opt/adpki/backend/artisan migrate:status --no-interaction 2>/dev/null \
+    | grep -c "Pending" || true)"
+
+if [ "$PENDING" -gt 0 ]; then
+    log "${YELLOW}${PENDING} neue Migration(en) gefunden.${RESET}"
+    runuser -u www-data -- php /opt/adpki/backend/artisan migrate --force --no-interaction
+    ok "Migrationen ausgeführt."
+else
+    ok "Keine neuen Migrationen."
+fi
+
+# Config + Cache leeren
+runuser -u www-data -- php /opt/adpki/backend/artisan config:clear
+runuser -u www-data -- php /opt/adpki/backend/artisan cache:clear
+runuser -u www-data -- php /opt/adpki/backend/artisan route:clear
+
+# ============================================================
+# 6. Frontend Update
+# ============================================================
+
+log "Update Frontend..."
+
+mkdir -p /opt/adpki/frontend
+
+# config.js sichern
+cp /opt/adpki/frontend/dist/config.js /tmp/adpki-config-js.bak 2>/dev/null || true
+
+rm -rf /opt/adpki/frontend/dist
+mkdir -p /opt/adpki/frontend/dist
+
+download_verified_release_asset \
+    "AD-PKI Frontend" \
+    "AD-PKI-Frontend" \
+    "ad-pki-frontend.tar.gz" \
+    "/opt/adpki/frontend/dist"
+
+# config.js wiederherstellen
+if [ -f /tmp/adpki-config-js.bak ]; then
+    cp /tmp/adpki-config-js.bak /opt/adpki/frontend/dist/config.js
+fi
+
+echo "$FRONTEND_LATEST" > /opt/adpki/frontend/dist/VERSION
+chown adpki:www-data /opt/adpki/frontend/dist/VERSION
+chmod 640 /opt/adpki/frontend/dist/VERSION
+
+ok "Frontend aktualisiert."
+
+# ============================================================
+# 7. Permissions korrigieren
+# ============================================================
+
+log "Korrigiere Permissions..."
+
+# ------------------------------------------------------------
+# Backend Code
+# ------------------------------------------------------------
+
+chown -R adpki:www-data /opt/adpki/backend
+
+find /opt/adpki/backend -type d -exec chmod 750 {} \;
+find /opt/adpki/backend -type f -exec chmod 640 {} \;
+
+if [ -f /opt/adpki/backend/artisan ]; then
+    chmod 750 /opt/adpki/backend/artisan
+fi
+
+if [ -L /opt/adpki/backend/.env ]; then
+    chown -h adpki:www-data /opt/adpki/backend/.env || true
+fi
+
+# ------------------------------------------------------------
+# Backend Vendor
+# ------------------------------------------------------------
+
+if [ -d /opt/adpki/backend/vendor ]; then
+    chown -R adpki:www-data /opt/adpki/backend/vendor
+    find /opt/adpki/backend/vendor -type d -exec chmod 750 {} \;
+    find /opt/adpki/backend/vendor -type f -exec chmod 640 {} \;
+fi
+
+# ------------------------------------------------------------
+# Backend Storage
+# ------------------------------------------------------------
+
+if [ -d /opt/adpki/backend/storage ]; then
+    chown -R www-data:www-data /opt/adpki/backend/storage
+    find /opt/adpki/backend/storage -type d -exec chmod 2770 {} \;
+    find /opt/adpki/backend/storage -type f -exec chmod 660 {} \;
+fi
+
+# ------------------------------------------------------------
+# Bootstrap Cache
+# ------------------------------------------------------------
+
+if [ -d /opt/adpki/backend/bootstrap/cache ]; then
+    chown -R www-data:www-data /opt/adpki/backend/bootstrap/cache
+    find /opt/adpki/backend/bootstrap/cache -type d -exec chmod 2770 {} \;
+    find /opt/adpki/backend/bootstrap/cache -type f -exec chmod 660 {} \;
+fi
+
+# ------------------------------------------------------------
+# Frontend
+# ------------------------------------------------------------
+
+chown -R adpki:www-data /opt/adpki/frontend
+chmod 750 /opt/adpki/frontend
+
+if [ -d /opt/adpki/frontend/dist ]; then
+    chown -R adpki:www-data /opt/adpki/frontend/dist
+    find /opt/adpki/frontend/dist -type d -exec chmod 750 {} \;
+    find /opt/adpki/frontend/dist -type f -exec chmod 640 {} \;
+fi
+
+# ------------------------------------------------------------
+# CA-Core
+# ------------------------------------------------------------
+
+chown -R adpki:adpki /opt/adpki/ca-core
+chmod 750 /opt/adpki/ca-core
+
+if [ -f /opt/adpki/ca-core/adpki-ca ]; then
+    chmod 750 /opt/adpki/ca-core/adpki-ca
+fi
+
+# ------------------------------------------------------------
+# Zertifikatsspeicher
+# ------------------------------------------------------------
+
+find /var/lib/adpki/intermediates/ -name "private" -type d \
+    -exec chmod 750 {} \; 2>/dev/null || true
+
+find /var/lib/adpki/intermediates/ -name "*.key" \
+    -exec chmod 640 {} \; 2>/dev/null || true
+
+find /var/lib/adpki/issued/ -name "private.key" \
+    -exec chmod 640 {} \; 2>/dev/null || true
+
+ok "Permissions gesetzt."
+
+# ============================================================
+# 8. Services starten
+# ============================================================
+
+log "Starte AD-PKI Services..."
+
+systemctl start adpki-ca.service
+systemctl start adpki-worker.service
+systemctl start adpki-reverb.service
+systemctl restart php8.4-fpm
+systemctl reload nginx
+
+ok "Services gestartet."
+
+# ============================================================
+# 9. Erreichbarkeit prüfen
+# ============================================================
+
+echo
+log "Prüfe Erreichbarkeit..."
+
+sleep 2
+
+if curl -kfsS https://127.0.0.1 >/dev/null 2>&1; then
+    ok "WebUI erreichbar"
+else
+    warn "WebUI nicht erreichbar"
+fi
+
+if curl -fsS http://127.0.0.1:8080/acme/directory >/dev/null 2>&1; then
+    ok "CA-Core erreichbar"
+else
+    warn "CA-Core nicht erreichbar"
+fi
+
+# ============================================================
+# Zusammenfassung
+# ============================================================
+
+echo
+echo "========================================"
+echo "  AD-PKI Update abgeschlossen"
+echo "========================================"
+echo
+echo "  CA:       ${CA_LATEST}"
+echo "  Backend:  ${BACKEND_LATEST}"
+echo "  Frontend: ${FRONTEND_LATEST}"
+echo
+echo "  DB-Backup: ${BACKUP_FILE:-keins}"
+echo "  Log:       ${LOG_FILE}"
+echo
+echo "========================================"

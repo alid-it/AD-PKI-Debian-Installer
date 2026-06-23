@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NTP_SERVER="${1:-}"
+
+error() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+info() {
+    echo "INFO: $*"
+}
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    error "This script must be run as root"
+fi
+
+if [[ -z "$NTP_SERVER" ]]; then
+    error "NTP server missing"
+fi
+
+if ! [[ "$NTP_SERVER" =~ ^[a-zA-Z0-9._:-]+$ ]]; then
+    error "Invalid NTP server: ${NTP_SERVER}"
+fi
+
+# Nicht unterstützte Daemons sind weiterhin ein harter Fehler
+UNSUPPORTED_NTP_SERVICES=(
+    ntp.service
+    ntpd.service
+    openntpd.service
+)
+
+for svc in "${UNSUPPORTED_NTP_SERVICES[@]}"; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        error "Unsupported NTP service is active: ${svc}. Please disable it first."
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# Aktiven Daemon erkennen: chrony oder systemd-timesyncd
+# ---------------------------------------------------------------------------
+
+if systemctl is-active --quiet chrony 2>/dev/null; then
+    NTP_BACKEND="chrony"
+elif systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
+    NTP_BACKEND="timesyncd"
+elif systemctl list-unit-files systemd-timesyncd.service >/dev/null 2>&1; then
+    NTP_BACKEND="timesyncd"
+else
+    error "Neither chrony nor systemd-timesyncd is available."
+fi
+
+info "Verwendeter NTP-Backend: ${NTP_BACKEND}"
+
+# ---------------------------------------------------------------------------
+# Konfiguration je nach Backend
+# ---------------------------------------------------------------------------
+
+if [[ "$NTP_BACKEND" == "chrony" ]]; then
+    CONF_FILE="/etc/chrony/conf.d/adpki.conf"
+
+    info "Writing AD-PKI chrony configuration"
+    mkdir -p "$(dirname "$CONF_FILE")"
+
+    cat > "$CONF_FILE" <<EOF
+server ${NTP_SERVER} iburst
+EOF
+
+    chmod 0644 "$CONF_FILE"
+    chown root:root "$CONF_FILE"
+
+    info "Restarting chrony"
+    systemctl restart chrony
+
+    sleep 2
+
+    if ! systemctl is-active --quiet chrony; then
+        systemctl status chrony --no-pager || true
+        error "chrony failed to start"
+    fi
+
+    info "NTP server configured successfully via chrony: ${NTP_SERVER}"
+    chronyc sources 2>/dev/null || true
+
+else
+    CONF_DIR="/etc/systemd/timesyncd.conf.d"
+    CONF_FILE="${CONF_DIR}/adpki.conf"
+
+    if ! command -v timedatectl >/dev/null 2>&1; then
+        error "timedatectl not found. systemd is required."
+    fi
+
+    info "Creating timesyncd configuration directory"
+    mkdir -p "$CONF_DIR"
+
+    info "Writing AD-PKI timesyncd configuration"
+    cat > "$CONF_FILE" <<EOF
+[Time]
+NTP=${NTP_SERVER}
+FallbackNTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org 2.debian.pool.ntp.org 3.debian.pool.ntp.org
+EOF
+
+    chmod 0644 "$CONF_FILE"
+    chown root:root "$CONF_FILE"
+
+    info "Enabling systemd-timesyncd"
+    systemctl unmask systemd-timesyncd.service >/dev/null 2>&1 || true
+    systemctl enable systemd-timesyncd.service >/dev/null
+
+    info "Activating NTP via timedatectl"
+    timedatectl set-ntp true
+
+    info "Restarting systemd-timesyncd"
+    systemctl restart systemd-timesyncd.service
+
+    sleep 2
+
+    if ! systemctl is-active --quiet systemd-timesyncd.service; then
+        systemctl status systemd-timesyncd.service --no-pager || true
+        error "systemd-timesyncd failed to start"
+    fi
+
+    info "NTP server configured successfully via timesyncd: ${NTP_SERVER}"
+    timedatectl status --no-pager
+fi

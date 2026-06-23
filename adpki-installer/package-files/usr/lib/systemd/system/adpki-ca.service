@@ -1,0 +1,24 @@
+[Unit]
+Description=AD-PKI CA Core Service
+After=network-online.target php8.4-fpm.service nginx.service
+Wants=network-online.target php8.4-fpm.service nginx.service
+
+[Service]
+Type=simple
+User=adpki
+Group=adpki
+SupplementaryGroups=www-data
+WorkingDirectory=/opt/adpki/ca-core
+EnvironmentFile=/etc/adpki/ca.env
+ExecStart=/opt/adpki/ca-core/adpki-ca
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/adpki /var/log/adpki
+
+[Install]
+WantedBy=multi-user.target

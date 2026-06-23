@@ -1,0 +1,26 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        rm -f /etc/nginx/sites-enabled/000-adpki.conf
+        rm -f /etc/apache2/sites-enabled/000-adpki.conf
+        
+        PHP_FPM_POOL_FILES="$(find /etc/php -maxdepth 4 -type f -path '*/fpm/pool.d/adpki.conf' 2>/dev/null || true)"
+
+        for file in $PHP_FPM_POOL_FILES; do
+            rm -f "$file"
+        done
+
+        systemctl daemon-reload >/dev/null 2>&1 || true
+
+        echo "AD-PKI package purged."
+        echo "Data directories were not removed automatically:"
+        echo "  /var/lib/adpki"
+        echo "  /var/log/adpki"
+        echo "  /opt/adpki"
+        echo "  /etc/adpki"
+        ;;
+esac
+
+exit 0

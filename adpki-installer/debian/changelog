@@ -1,0 +1,329 @@
+adpki (0.1.21) stable; urgency=medium
+
+  * Installer: Composer wird automatisch installiert (30-php.sh).
+  * Installer: Composer install läuft als www-data statt root.
+  * Installer: COMPOSER_HOME auf /var/lib/adpki/.composer-cache.
+  * Installer: unzip als Abhängigkeit installiert.
+  * Installer: jq als Abhängigkeit installiert.
+  * Installer: Go-Toolchain-Step deaktiviert (Binary von GitHub).
+  * Installer: NTP-Prüfung mit chrony/timesyncd-Kompatibilität.
+  * Installer: Nicht unterstützte NTP-Dienste werden deaktiviert.
+  * Installer: Download vor postinst-Aufruf (Ablaufreihenfolge).
+  * Installer: Laravel-Log-Permissions nach Setup korrigiert.
+  * Installer: adpki-scheduler.timer als systemd-Unit angelegt.
+  * Installer: adpki-reverb.service in postinst ergänzt.
+  * Installer: setup:install non-interaktiv nach Service-Start.
+  * Setup: JSON-Injection in Admin-Erstellung mit jq behoben.
+  * Setup: curl -k (TLS-Skip) entfernt, Let's Encrypt vertraut.
+  * CLI: adpki update Befehl hinzugefügt.
+  * CLI: adpki-update Skript für automatische Updates.
+  * CLI: Reverb und PHP-FPM in Status/Restart ergänzt.
+  * CLI: Unbenutzte Setup-Befehle entfernt.
+  * Debian: jq in Suggests aufgenommen.
+  * Debian: apache2 aus Suggests entfernt.
+  * NTP: adpki-set-ntp unterstützt chrony und timesyncd.
+  * Updater: SHA256 Check hinzugefügt
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 20 Jun 2026 23:00:00 +0200
+
+
+adpki (0.1.20) stable; urgency=medium
+
+  * Setup: Neuer Step zur zentralen Erstellung der Anwendungskonfiguration.
+  * Setup: Öffentliche AD-PKI URL wird abgefragt und automatisch konfiguriert.
+  * Setup: Automatische Generierung von CA_TOKEN, REVERB_APP_ID und Secrets.
+  * Setup: Automatische Erstellung von /etc/adpki/backend.env.
+  * Setup: Automatische Erstellung von /etc/adpki/ca.env.
+  * Setup: Frontend Runtime-Konfiguration über config.js.
+  * Setup: Frontend-Konfiguration ohne Neubuild des Vue-Frontends anpassbar.
+  * Setup: APP_URL und REVERB_PUBLIC_HOST werden automatisch erzeugt.
+  * Setup: Backend-Konfiguration unter /etc/adpki per Symlink eingebunden.
+  * Setup: Automatische APP_KEY-Erzeugung integriert.
+  * Setup: Erweiterte Laravel-Konfigurationsprüfung integriert.
+  * Setup: Validierung der Laravel-Installation via Artisan integriert.
+  * Setup: Datenbankschema vollständig über Laravel Migrationen aufgebaut.
+  * Setup: Automatische Ausführung von Permission- und RoleSeeder.
+  * Setup: Erweiterte Datenbank-Zusammenfassung nach Schema-Installation.
+  * Setup: Systemprüfung für Schreibrechte auf /var/log/adpki verbessert.
+  * Installer: sudoers-Datei korrekt als Paketbestandteil installiert.
+  * Installer: NTP-Hilfsskript nach /usr/sbin/adpki-set-ntp verschoben.
+  * Installer: Debian-Paketstruktur an Debian-Richtlinien angepasst.
+  * Installer: Veraltete SQL-Dump-Installation entfernt.
+  * Installer: Vollständige Umstellung auf Laravel Migrationen abgeschlossen.
+  * Installer: Verbesserte Behandlung von Paketmanager-Sperren vorbereitet.
+  * Webserver: ACME-Reverse-Proxy über Nginx integriert.
+  * Security: CA-Core vollständig intern betreibbar.
+  * Security: Konfigurationsdateien mit restriktiven Berechtigungen angelegt.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 12 Jun 2026 00:50:00 +0200
+
+
+adpki (0.1.19) stable; urgency=medium
+
+  * Feature: AD-PKI Systembenutzer "adpki" wird während der Installation automatisch angelegt.
+  * Feature: adpki wird automatisch der Gruppe www-data hinzugefügt, um kontrollierten Zugriff auf Laravel-Ressourcen zu ermöglichen.
+  * Feature: Verzeichnisstruktur für AD-PKI Laufzeitdaten, Zertifikate und Logs wird automatisch erstellt.
+  * Feature: Automatische Initialisierung von /var/lib/adpki, /var/log/adpki und zugehörigen Unterverzeichnissen.
+  * Feature: Zentrale Verwaltung von Datei- und Verzeichnisberechtigungen über Installer und Post-Installationsskripte.
+  * Feature: Neue Berechtigungslogik für strikte Trennung zwischen Go CA-Core und PHP/Laravel Runtime.
+  * Security: Go/CA-Core Speicherbereiche unter /var/lib/adpki sind ausschließlich für den Benutzer adpki zugänglich.
+  * Security: Private Schlüssel und interne PKI-Daten sind vollständig vom Webserver-Benutzer www-data getrennt.
+  * Security: Laravel erhält ausschließlich Schreibrechte auf storage und bootstrap/cache.
+  * Security: Konfigurationsdateien werden mit dienstspezifischen Besitzern und restriktiven Berechtigungen angelegt.
+  * Feature: Systemweite NTP-Verwaltung für AD-PKI integriert.
+  * Feature: Neues Hilfsskript /usr/sbin/adpki-set-ntp zur Konfiguration von systemd-timesyncd.
+  * Feature: Automatische Erstellung und Pflege von /etc/systemd/timesyncd.conf.d/adpki.conf.
+  * Feature: Neue gemeinsame Installer-Funktion zur Verwaltung von NTP-Helferskript und sudoers-Berechtigungen.
+  * Feature: Unterstützung für zentrale NTP-Konfiguration über den CA-Core vorbereitet.
+  * Feature: sudoers-Regel für den AD-PKI Servicebenutzer wird automatisch installiert und validiert.
+  * Security: adpki erhält ausschließlich Berechtigung zur Ausführung von adpki-set-ntp mit Root-Rechten.
+  * Installer: Verbesserte Behandlung von Verzeichnisrechten während Installation und Runtime-Konfiguration.
+  * Installer: Vereinheitlichte Rechteverwaltung zwischen common.sh, postinst und Runtime-Konfiguration.
+  * Installer: Zusätzliche Validierungen für NTP-Konfiguration und sudoers-Dateien integriert.
+  * Installer: Vorbereitungen für systemweite NTP-Konfiguration über die Weboberfläche ergänzt.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 05 Jun 2026 13:10:00 +0200
+
+
+adpki (0.1.18) stable; urgency=medium
+
+  * Verbesserung: Datenbankmodus wird jetzt dauerhaft in /etc/adpki/install.env gespeichert.
+  * Neu: ADPKI_DB_MODE_LABEL hinzugefügt, um den gewählten Installationsmodus lesbar zu speichern.
+  * Setup Schritt 20 überarbeitet und an install.env gekoppelt.
+  * Lokaler PostgreSQL-Modus verwendet jetzt automatisch:
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+      - DB_DATABASE=adpki
+  * Entfernt: Zusätzliche Auswahl zwischen "Neue lokale Datenbank"
+    und "Vorhandene lokale Datenbank" im Setup.
+  * Verbesserung: Im lokalen Datenbankmodus werden nur noch
+    DB-Benutzer und Passwort abgefragt.
+  * Verbesserung: Automatische Erstellung bzw. Aktualisierung
+    des lokalen PostgreSQL-Benutzers.
+  * Verbesserung: Automatische Erstellung der lokalen AD-PKI Datenbank.
+  * Verbesserung: Datenbankmodus wird im Setup automatisch erkannt.
+  * Verbesserung: PostgreSQL-Verbindung und Schreibrechte werden
+    vor dem Schema-Import vollständig geprüft.
+  * Verbesserung: Setup bricht bei fehlerhafter externer
+    Datenbankverbindung sauber ab.
+  * Verbesserung: Erweiterte Status- und Setup-Ausgaben.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Wed, 27 May 2026 20:15:00 +0200
+
+adpki (0.1.17) stable; urgency=medium
+
+  * Bugfix: Fehler beim Speichern von Werten in /etc/adpki/backend.env behoben.
+  * set_env_value() überarbeitet, damit Sonderzeichen in DB-Passwörtern keine sed-Fehler mehr verursachen.
+  * Datenbank-Setup Schritt 20 stabilisiert.
+  * Lokale PostgreSQL-Erstellung und anschließendes Speichern der Laravel-DB-Konfiguration korrigiert.
+  * Setup kann nach erfolgreicher DB-Verbindung sauber mit dem Schema-Import fortfahren.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sun, 10 May 2026 17:10:00 +0200
+
+adpki (0.1.16) stable; urgency=medium
+
+  * Added runtime validation before starting the AD-PKI setup wizard.
+    - adpki-setup now checks whether adpki-install has been completed.
+    - Setup is blocked if ADPKI_RUNTIME_INSTALLED is not set to true.
+    - Added checks for required application payloads:
+      /opt/adpki/backend/artisan
+      /opt/adpki/frontend/dist/index.html
+      /opt/adpki/ca-core/adpki-ca
+
+  * Added setup step 3: database connection configuration.
+    - Added interactive database setup for AD-PKI.
+    - Supports existing PostgreSQL servers.
+    - Supports locally installed PostgreSQL mode.
+    - Writes database configuration to /etc/adpki/backend.env.
+    - Stores setup database values in /etc/adpki/setup.env.
+    - Performs PostgreSQL connection checks before continuing.
+
+  * Added setup step 4: database schema installation.
+    - Added controlled schema import using AD-PKI schema v1.
+    - Added schema source path:
+      /usr/share/adpki/database/adpki_schema_v1.sql
+    - Added support for importing the prepared PostgreSQL schema.
+    - Added Laravel seeder execution after schema installation.
+    - Keeps seeders available for default roles, permissions and notification events.
+
+  * Improved setup wizard structure.
+    - Added dedicated setup common helper functions.
+    - Added setup logging under /var/log/adpki/setup.
+    - Added setup state handling under /var/lib/adpki/setup.
+    - Added step tracking for completed setup steps.
+
+  * Improved installer and setup separation.
+    - Debian installer remains responsible for system/runtime preparation.
+    - adpki-setup is responsible for functional AD-PKI configuration.
+    - Root CA, Intermediate CA, WebUI TLS and Admin User setup remain in later setup steps.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sun, 10 May 2026 16:20:00 +0200
+
+adpki (0.1.15) stable; urgency=medium
+
+  * Added initial AD-PKI setup CLI structure.
+  * Added adpki-setup command.
+  * Added setup common library and first setup steps:
+    - 00-welcome.sh
+    - 10-system-check.sh
+  * Added PostgreSQL schema V1 as package payload.
+  * Added AD-PKI Go CA-Core binary to package payload.
+  * Added compiled Vue frontend dist payload.
+  * Added Laravel backend production payload with vendor dependencies.
+  * Removed local .env and SQLite database from packaged backend payload.
+  * Added backend, frontend and CA-Core deployment under /opt/adpki.
+  * Updated package install rules for setup scripts, schema file and application payloads.
+  * Improved postinst handling for packaged application payload permissions.
+  * Ensured CA-Core binary permissions and ownership are corrected during postinst.
+  * Prepared package for CLI-based first-time setup flow.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sun, 10 May 2026 15:55:00 +0200
+
+adpki (0.1.14) stable; urgency=medium
+
+  * Improved AD-PKI runtime installer stability.
+  * Added PostgreSQL mode distinction between existing PostgreSQL server and
+    new local PostgreSQL server installation.
+  * Updated installer database selection wording.
+  * Added readable database mode labels in installer output.
+  * Added PostgreSQL 17.x version policy with minimum required version 17.9.
+  * Changed PostgreSQL installation from exact package pinning to version
+    policy validation for PostgreSQL 17.x >= 17.9.
+  * Changed PHP installation to allow PHP 8.4.x security updates while
+    requiring PHP >= 8.4.16.
+  * Added runtime package hold handling for AD-PKI related Debian packages.
+  * Added /etc/adpki/held-packages.list to document held runtime packages.
+  * Improved installer logging for step-based runtime installation.
+  * Replaced apt usage with apt-get in installer scripts for better scripting
+    compatibility.
+  * Improved Podman/container compatibility by skipping live service checks
+    when systemd is not running.
+  * Fixed installer output to use PostgreSQL version policy label instead of
+    removed exact-version variable.
+  * Improved install.env generation for Webserver, PostgreSQL, PHP, Node.js
+    and Go runtime metadata.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sun, 10 May 2026 15:00:00 +0200
+
+adpki (0.1.13) stable; urgency=medium
+
+  * Rename database runtime choice from external/local to existing/local.
+  * Use existing PostgreSQL mode for pre-existing local or remote database servers.
+  * Install only PostgreSQL client when existing database mode is selected.
+  * Install PostgreSQL server only when local database mode is selected.
+  * Remove remaining POSTGRES_EXACT_VERSION usage from installer summary.
+  * Improve final runtime installation summary output.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sun, 10 May 2026 12:00:00 +0200
+
+adpki (0.1.12) stable; urgency=medium
+
+  * Fix install.env shell compatibility by removing spaces from policy values.
+  * Add display labels for PHP and PostgreSQL version policies.
+  * Prevent installer steps from failing while sourcing /etc/adpki/install.env.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sat, 09 May 2026 19:45:00 +0200
+
+adpki (0.1.11) stable; urgency=medium
+
+  * Move runtime packages from Depends to Suggests.
+  * Prevent base package installation from automatically installing PHP, webserver and PostgreSQL.
+  * Keep runtime installation exclusively in adpki-install.
+  * Preserve clean separation between AD-PKI base package and runtime setup.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sat, 09 May 2026 19:50:00 +0200
+
+adpki (0.1.10) stable; urgency=medium
+
+  * Change PHP handling from exact patch version to PHP 8.4 minimum version policy.
+  * Allow newer Debian security patch releases such as PHP 8.4.21.
+  * Store installed PHP version in /etc/adpki/install.env.
+  * Keep exact version checks for PostgreSQL, Node.js and Go.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sat, 09 May 2026 19:35:00 +0200
+
+adpki (0.1.9) stable; urgency=medium
+
+  * Split runtime installer into separate component step scripts.
+  * Add reusable common installer helper library.
+  * Write install.env before executing runtime steps.
+  * Allow individual runtime steps to be rerun for easier debugging.
+  * Add dedicated installer log directory under /var/log/adpki/installer.
+  * Add separate log files for each runtime installer step.
+  * Add main installer log file for adpki-install execution.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sat, 09 May 2026 19:30:00 +0200
+
+adpki (0.1.8) stable; urgency=medium
+
+  * Fix apt-cache madison parser with pipefail enabled.
+  * Prevent installer abort during exact package version lookup.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Sat, 09 May 2026 17:00:00 +0200
+
+adpki (0.1.7) stable; urgency=medium
+
+  * Add webserver selection for Nginx or Apache2.
+  * Configure AD-PKI for the selected webserver only.
+  * Add Apache2 virtual host support with PHP-FPM.
+  * Stop deleting existing webserver site configurations.
+  * Store selected webserver in /etc/adpki/install.env.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 16:30:00 +0200
+
+adpki (0.1.6) stable; urgency=medium
+
+  * Move runtime dependencies from hard Depends to installer runtime.
+  * Add automatic disabling of conflicting web services.
+  * Add preflight port checks for ports 80 and 443.
+  * Reconfigure AD-PKI after runtime installation.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 16:00:00 +0200
+
+adpki (0.1.5) stable; urgency=medium
+
+  * Fix Go 1.26.1 checksum verification for official Linux archives.
+  * Keep Node.js installation using official SHASUMS256 verification.
+  * Keep PostgreSQL installation pinned to explicit PostgreSQL 17 packages.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 15:30:00 +0200
+
+adpki (0.1.4) stable; urgency=medium
+
+  * Prevent PostgreSQL PGDG meta packages from installing PostgreSQL 18.
+  * Install only explicit PostgreSQL 17 packages.
+  * Update Node.js runtime to 24.15.0.
+  * Verify Node.js downloads using official SHASUMS256.txt.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 15:10:00 +0200
+
+adpki (0.1.3) stable; urgency=medium
+
+  * Include AD-PKI runtime installer inside the Debian package.
+  * Add adpki-install command.
+  * Fix secure permissions for versions.env.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 14:20:00 +0200
+
+adpki (0.1.2) stable; urgency=medium
+
+  * Set secure permissions for versions.env.
+  * Prepare installer wrapper for runtime installation.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 14:00:00 +0200
+
+adpki (0.1.1) stable; urgency=medium
+
+  * Remove php8.4 meta package dependency to avoid pulling Apache.
+  * Use PHP-FPM only for AD-PKI runtime.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Fri, 08 May 2026 13:30:00 +0200
+
+adpki (0.1.0) stable; urgency=medium
+
+  * Initial AD-PKI Debian installer package.
+  * Adds system user, directories, systemd units, nginx config and CLI helper.
+
+ -- Ali Danakiran <danakiranali@gmail.com>  Thu, 07 May 2026 10:00:00 +0200
+
+

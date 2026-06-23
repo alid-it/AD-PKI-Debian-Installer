@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+SETUP_DIR="/usr/lib/adpki/setup"
+COMMON="${SETUP_DIR}/common.sh"
+STEPS_DIR="${SETUP_DIR}/steps"
+
+if [ ! -f "$COMMON" ]; then
+    echo "AD-PKI Setup common.sh nicht gefunden: $COMMON"
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+. "$COMMON"
+
+require_root
+require_runtime_installed
+setup_logging "adpki-setup"
+load_install_env
+load_setup_env_if_exists
+
+echo
+echo "AD-PKI Setup Wizard"
+echo "==================="
+echo
+echo "Dieser Assistent führt die fachliche Erstkonfiguration durch."
+echo
+echo "Geplante Schritte:"
+echo
+echo "  1) Willkommen"
+echo "  2) Systemprüfung"
+echo "  3) Datenbankverbindung"
+echo "  4) Datenbankschema installieren"
+echo "  5) Root CA importieren"
+echo "  6) Intermediate CA importieren"
+echo "  7) Trust-Hinweis für Clients"
+echo "  8) WebUI-Zertifikat einrichten"
+echo "  9) Admin User anlegen"
+echo " 10) Scheduler/Systemdienste prüfen"
+echo " 11) Setup abschließen"
+echo
+
+if is_setup_completed; then
+    echo "AD-PKI Setup ist bereits abgeschlossen."
+    echo
+    echo "Statusdatei:"
+    echo "  ${ADPKI_SETUP_STATE}"
+    echo
+    echo "Zum erneuten Einrichten muss das Setup bewusst zurückgesetzt werden."
+    exit 0
+fi
+
+read -rp "Setup jetzt starten? [y/N]: " START_SETUP
+
+case "$START_SETUP" in
+    y|Y|yes|YES)
+        ;;
+    *)
+        echo "Setup abgebrochen."
+        exit 0
+        ;;
+esac
+
+echo
+echo "Starte AD-PKI Setup..."
+
+for step in \
+    "00-welcome.sh" \
+    "10-system-check.sh" \
+    "20-application-env.sh" \
+    "30-database.sh" \
+    "40-schema.sh" \
+    "50-import-root.sh" \
+    "60-import-intermediate.sh" \
+    "70-trust-info.sh" \
+    "80-webui-tls.sh" \
+    "90-admin-user.sh" \
+    "95-services-check.sh"
+do
+    STEP_PATH="${STEPS_DIR}/${step}"
+
+    if [ ! -x "$STEP_PATH" ]; then
+        echo "Fehler: Setup-Step fehlt oder ist nicht ausführbar: $STEP_PATH"
+        exit 1
+    fi
+
+    echo
+    echo "============================================================"
+    echo "Running setup step: ${step}"
+    echo "============================================================"
+    echo
+
+    "$STEP_PATH"
+done
+
+load_setup_env_if_exists
+
+WEBUI_URL=""
+if [ -n "${ADPKI_TLS_DOMAIN:-}" ]; then
+    WEBUI_URL="https://${ADPKI_TLS_DOMAIN}"
+fi
+
+echo
+echo "************************************************************"
+echo "*                                                          *"
+echo "*  AD-PKI Setup wurde abgeschlossen                        *"
+echo "*                                                          *"
+echo "*  Login ist jetzt aktiv.                                  *"
+
+if [ -n "$WEBUI_URL" ]; then
+    echo "*                                                          *"
+    printf "*  WebUI erreichbar unter: %-31s*\n" "$WEBUI_URL"
+fi
+
+echo "*                                                          *"
+echo "************************************************************"
+echo

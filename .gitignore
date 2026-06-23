@@ -1,0 +1,57 @@
+# Build artifacts
+*.deb
+*.changes
+*.build
+*.buildinfo
+*.dsc
+*.tar.gz
+*.tar.xz
+*.tar.zst
+*.upload
+SHA256SUMS
+release/
+dist/
+build/
+out/
+
+# Debian build output
+adpki-installer_*/
+adpki-installer*.deb
+adpki-installer*.changes
+adpki-installer*.buildinfo
+adpki-installer*.dsc
+adpki-installer*.tar.*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+
+# Certificates / keys - niemals committen
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+*.der
+*.jks
+*.keystore
+
+# Runtime data
+var/
+tmp/
+cache/

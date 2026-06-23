@@ -1,0 +1,413 @@
+#!/bin/bash
+set -e
+
+has_systemd() {
+    [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1
+}
+
+systemd_daemon_reload() {
+    if has_systemd; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    else
+        echo "Hinweis: systemd läuft nicht. daemon-reload wird übersprungen."
+    fi
+}
+
+ensure_ntp_helper_permissions() {
+    mkdir -p /usr/local/sbin
+    chown root:root /usr/local/sbin
+    chmod 755 /usr/local/sbin
+
+    mkdir -p /etc/sudoers.d
+    chown root:root /etc/sudoers.d
+    chmod 755 /etc/sudoers.d
+
+    if [ -f /usr/sbin/adpki-set-ntp ]; then
+        chown root:root /usr/sbin/adpki-set-ntp
+        chmod 750 /usr/sbin/adpki-set-ntp
+    else
+        echo "Hinweis: /usr/sbin/adpki-set-ntp wurde nicht gefunden."
+    fi
+
+    if [ -f /etc/sudoers.d/adpki ]; then
+        chown root:root /etc/sudoers.d/adpki
+        chmod 440 /etc/sudoers.d/adpki
+
+        if command -v visudo >/dev/null 2>&1; then
+            if visudo -c -f /etc/sudoers.d/adpki >/dev/null; then
+                echo "sudoers für AD-PKI ist gültig."
+            else
+                echo "Fehler: sudoers-Datei /etc/sudoers.d/adpki ist ungültig."
+                exit 1
+            fi
+        fi
+    else
+        echo "Hinweis: /etc/sudoers.d/adpki wurde nicht gefunden."
+    fi
+}
+
+systemd_enable() {
+    local service="$1"
+
+    if has_systemd; then
+        systemctl enable "$service" >/dev/null 2>&1 || true
+    else
+        echo "Hinweis: systemd läuft nicht. Service wird nicht aktiviert: ${service}"
+    fi
+}
+
+systemd_restart() {
+    local service="$1"
+
+    if has_systemd; then
+        systemctl restart "$service" >/dev/null 2>&1 || true
+    else
+        echo "Hinweis: systemd läuft nicht. Service wird nicht gestartet: ${service}"
+    fi
+}
+
+systemd_reload_or_restart() {
+    local service="$1"
+
+    if has_systemd; then
+        systemctl reload "$service" >/dev/null 2>&1 || \
+        systemctl restart "$service" >/dev/null 2>&1 || true
+    else
+        echo "Hinweis: systemd läuft nicht. Service wird nicht neu geladen: ${service}"
+    fi
+}
+
+case "$1" in
+    configure)
+        echo "Configuring AD-PKI..."
+
+        # ------------------------------------------------------------
+        # Read installer state
+        # ------------------------------------------------------------
+        WEB_SERVER=""
+
+        if [ -f /etc/adpki/install.env ]; then
+            # shellcheck disable=SC1091
+            . /etc/adpki/install.env
+            WEB_SERVER="${ADPKI_WEB_SERVER:-}"
+        fi
+
+        # ------------------------------------------------------------
+# System user
+# ------------------------------------------------------------
+if ! getent group www-data >/dev/null 2>&1; then
+    groupadd --system www-data
+fi
+
+if ! getent group adpki >/dev/null 2>&1; then
+    groupadd --system adpki
+fi
+
+if ! id adpki >/dev/null 2>&1; then
+    useradd \
+        --system \
+        --gid adpki \
+        --groups www-data \
+        --home-dir /var/lib/adpki \
+        --shell /usr/sbin/nologin \
+        --comment "AD-PKI Service User" \
+        adpki
+else
+    usermod -aG www-data adpki
+fi
+
+# www-data braucht Lesezugriff auf /var/lib/adpki für Laravel (realpath-Check)
+usermod -aG adpki www-data
+
+        # ------------------------------------------------------------
+        # Webserver user/group detection
+        # ------------------------------------------------------------
+        WEB_GROUP="www-data"
+        LOG_GROUP="adm"
+
+        if ! getent group www-data >/dev/null 2>&1; then
+            WEB_GROUP="adpki"
+        fi
+
+        if ! getent group adm >/dev/null 2>&1; then
+            LOG_GROUP="adpki"
+        fi
+
+        # ------------------------------------------------------------
+        # Directory structure
+        # ------------------------------------------------------------
+        install -d -o adpki -g "$WEB_GROUP" -m 750 /opt/adpki
+        install -d -o adpki -g "$WEB_GROUP" -m 750 /opt/adpki/backend
+        install -d -o adpki -g "$WEB_GROUP" -m 750 /opt/adpki/frontend
+        install -d -o adpki -g adpki       -m 750 /opt/adpki/ca-core
+
+        # Go/CA-Core storage: KEIN www-data Zugriff
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/root
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/intermediates
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/issued
+        install -d -o adpki -g adpki -m 700 /var/lib/adpki/private
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/crl
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/csrs
+        install -d -o adpki -g adpki -m 750 /var/lib/adpki/setup
+
+        # Logs
+        install -d -o root     -g adpki        -m 755 /var/log/adpki
+        install -d -o www-data -g "$LOG_GROUP" -m 750 /var/log/adpki/backend
+        install -d -o adpki    -g "$LOG_GROUP" -m 750 /var/log/adpki/ca-core
+        install -d -o adpki    -g "$LOG_GROUP" -m 750 /var/log/adpki/installer
+        install -d -o adpki    -g "$LOG_GROUP" -m 750 /var/log/adpki/setup
+        install -d -o www-data -g "$LOG_GROUP" -m 750 /var/log/adpki/nginx
+
+        # ------------------------------------------------------------
+        # Config permissions
+        # ------------------------------------------------------------
+
+        # Laravel/PHP darf nur backend.env lesen
+        if [ -f /etc/adpki/backend.env ]; then
+            chown root:www-data /etc/adpki/backend.env
+            chmod 640 /etc/adpki/backend.env
+        fi
+
+        # Go/CA-Core Config: KEIN www-data Zugriff
+        if [ -f /etc/adpki/ca.env ]; then
+            chown root:adpki /etc/adpki/ca.env
+            chmod 640 /etc/adpki/ca.env
+        fi
+
+        for config_file in \
+            /etc/adpki/versions.env \
+            /etc/adpki/install.env \
+            /etc/adpki/held-packages.list
+        do
+            if [ -f "$config_file" ]; then
+                chown root:adpki "$config_file"
+                chmod 640 "$config_file"
+            fi
+        done
+
+        # ------------------------------------------------------------
+        # Laravel .env symlink
+        # ------------------------------------------------------------
+        if [ -f /etc/adpki/backend.env ]; then
+            if [ -L /opt/adpki/backend/.env ]; then
+                ln -sfn /etc/adpki/backend.env /opt/adpki/backend/.env
+                chown -h adpki:www-data /opt/adpki/backend/.env || true
+            elif [ ! -e /opt/adpki/backend/.env ]; then
+                ln -s /etc/adpki/backend.env /opt/adpki/backend/.env
+                chown -h adpki:www-data /opt/adpki/backend/.env || true
+            else
+                echo "Warnung: /opt/adpki/backend/.env existiert bereits und ist kein Symlink. Datei wird nicht überschrieben."
+            fi
+        fi
+
+        # ------------------------------------------------------------
+        # Laravel backend runtime directories
+        # ------------------------------------------------------------
+        if [ -d /opt/adpki/backend ]; then
+            install -d -o adpki    -g www-data -m 750  /opt/adpki/backend/bootstrap
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/bootstrap/cache
+
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/app
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/framework
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/framework/cache
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/framework/cache/data
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/framework/sessions
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/framework/views
+            install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/storage/logs
+        fi
+
+        # ------------------------------------------------------------
+        # PHP-FPM pool
+        # ------------------------------------------------------------
+        PHP_FPM_POOL_DIR=""
+
+        if [ -d /etc/php ]; then
+            PHP_FPM_POOL_DIR="$(find /etc/php -maxdepth 3 -type d -path '*/fpm/pool.d' 2>/dev/null | sort -V | tail -n1 || true)"
+        fi
+
+        if [ -n "$PHP_FPM_POOL_DIR" ]; then
+            PHP_VERSION="$(echo "$PHP_FPM_POOL_DIR" | awk -F'/' '{print $4}')"
+            PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+
+            cat > "$PHP_FPM_POOL_DIR/adpki.conf" <<'EOF'
+[adpki]
+user = www-data
+group = www-data
+
+listen = /run/php/adpki-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+
+chdir = /opt/adpki/backend
+
+clear_env = no
+
+php_admin_value[error_log] = /var/log/adpki/backend/php-fpm-error.log
+php_admin_flag[log_errors] = on
+EOF
+
+            systemd_enable "$PHP_FPM_SERVICE"
+            systemd_restart "$PHP_FPM_SERVICE"
+        else
+            echo "PHP-FPM ist noch nicht installiert. Wird später durch adpki-install eingerichtet."
+        fi
+
+        # ------------------------------------------------------------
+        # AD-PKI application payload permissions
+        # ------------------------------------------------------------
+
+        # Base
+        if [ -d /opt/adpki ]; then
+            chown adpki:"$WEB_GROUP" /opt/adpki
+            chmod 750 /opt/adpki
+        fi
+
+        # Laravel backend code
+        if [ -d /opt/adpki/backend ]; then
+            chown -R adpki:www-data /opt/adpki/backend
+            find /opt/adpki/backend -type d -exec chmod 750 {} \; 2>/dev/null || true
+            find /opt/adpki/backend -type f -exec chmod 640 {} \; 2>/dev/null || true
+
+            if [ -d /opt/adpki/backend/public ]; then
+                chown -R adpki:www-data /opt/adpki/backend/public
+                find /opt/adpki/backend/public -type d -exec chmod 750 {} \; 2>/dev/null || true
+                find /opt/adpki/backend/public -type f -exec chmod 640 {} \; 2>/dev/null || true
+            fi
+
+            if [ -d /opt/adpki/backend/storage ]; then
+                chown -R www-data:www-data /opt/adpki/backend/storage
+                find /opt/adpki/backend/storage -type d -exec chmod 2770 {} \; 2>/dev/null || true
+                find /opt/adpki/backend/storage -type f -exec chmod 660 {} \; 2>/dev/null || true
+            fi
+
+            if [ -d /opt/adpki/backend/bootstrap ]; then
+                chown adpki:www-data /opt/adpki/backend/bootstrap
+                chmod 750 /opt/adpki/backend/bootstrap
+            fi
+
+            if [ -d /opt/adpki/backend/bootstrap/cache ]; then
+                chown -R www-data:www-data /opt/adpki/backend/bootstrap/cache
+                find /opt/adpki/backend/bootstrap/cache -type d -exec chmod 2770 {} \; 2>/dev/null || true
+                find /opt/adpki/backend/bootstrap/cache -type f -exec chmod 660 {} \; 2>/dev/null || true
+            fi
+
+            if [ -f /opt/adpki/backend/artisan ]; then
+                chown adpki:www-data /opt/adpki/backend/artisan
+                chmod 750 /opt/adpki/backend/artisan
+            fi
+        fi
+
+        # Vue/NPM frontend build
+        if [ -d /opt/adpki/frontend ]; then
+            chown -R adpki:www-data /opt/adpki/frontend
+            chmod 750 /opt/adpki/frontend
+
+            if [ -d /opt/adpki/frontend/dist ]; then
+                chown -R adpki:www-data /opt/adpki/frontend/dist
+                find /opt/adpki/frontend/dist -type d -exec chmod 750 {} \; 2>/dev/null || true
+                find /opt/adpki/frontend/dist -type f -exec chmod 640 {} \; 2>/dev/null || true
+            fi
+        fi
+
+        # Go CA-Core code
+        if [ -d /opt/adpki/ca-core ]; then
+            chown -R adpki:adpki /opt/adpki/ca-core
+            chmod 750 /opt/adpki/ca-core
+        fi
+
+        if [ -f /opt/adpki/ca-core/adpki-ca ]; then
+            chown adpki:adpki /opt/adpki/ca-core/adpki-ca
+            chmod 750 /opt/adpki/ca-core/adpki-ca
+        fi
+
+        # Go/CA-Core storage permissions: KEIN www-data
+        if [ -d /var/lib/adpki ]; then
+            chown -R adpki:adpki /var/lib/adpki
+            find /var/lib/adpki -type d -exec chmod 750 {} \; 2>/dev/null || true
+            find /var/lib/adpki -type f -exec chmod 640 {} \; 2>/dev/null || true
+
+            chmod 700 /var/lib/adpki/private 2>/dev/null || true
+            find /var/lib/adpki/private -type d -exec chmod 700 {} \; 2>/dev/null || true
+            find /var/lib/adpki/private -type f -exec chmod 600 {} \; 2>/dev/null || true
+        fi
+
+        # ------------------------------------------------------------
+        # Nginx site
+        # ------------------------------------------------------------
+        if [ "$WEB_SERVER" = "nginx" ]; then
+            if command -v nginx >/dev/null 2>&1; then
+                install -d -m 755 /etc/nginx/sites-available
+                install -d -m 755 /etc/nginx/sites-enabled
+
+                if [ -f /etc/nginx/sites-available/adpki.conf ]; then
+                    ln -sfn /etc/nginx/sites-available/adpki.conf /etc/nginx/sites-enabled/000-adpki.conf
+                fi
+
+                if nginx -t >/dev/null 2>&1; then
+                    systemd_enable nginx
+                    systemd_reload_or_restart nginx
+                else
+                    echo "Warnung: nginx -t ist fehlgeschlagen. Nginx wurde nicht neu geladen."
+                fi
+            else
+                echo "Nginx ist noch nicht installiert. Wird später durch adpki-install eingerichtet."
+            fi
+        fi
+
+
+        # ------------------------------------------------------------
+        # AD-PKI NTP helper permissions
+        # ------------------------------------------------------------
+        ensure_ntp_helper_permissions
+
+        # ------------------------------------------------------------
+        # systemd AD-PKI services
+        # ------------------------------------------------------------
+        systemd_daemon_reload
+
+        systemd_enable adpki-ca.service
+        systemd_enable adpki-worker.service
+        systemd_enable adpki-reverb.service
+        systemd_enable adpki-scheduler.timer
+
+        if [ -x /opt/adpki/ca-core/adpki-ca ]; then
+            systemd_restart adpki-ca.service
+        fi
+
+        if [ -f /opt/adpki/backend/artisan ]; then
+            systemd_restart adpki-worker.service
+        if systemctl is-active --quiet adpki-reverb.service 2>/dev/null || [ -S /run/php/adpki-fpm.sock ]; then
+            systemd_restart adpki-reverb.service
+        fi
+            systemd_restart adpki-scheduler.timer
+        fi
+
+        # ------------------------------------------------------------
+        # Output
+        # ------------------------------------------------------------
+        if [ "${ADPKI_POSTINST_CONTEXT:-package}" = "package" ]; then
+            echo
+            echo "************************************************************"
+            echo "*                                                          *"
+            echo "*  AD-PKI Grundpaket wurde installiert                     *"
+            echo "*                                                          *"
+            echo "*  Für vollständige Runtime-Installation ausführen:        *"
+            echo "*                                                          *"
+            echo "*  sudo adpki-install                                      *"
+            echo "*                                                          *"
+            echo "************************************************************"
+            echo
+        fi
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,48 @@
+Source: adpki
+Section: admin
+Priority: optional
+Maintainer: Ali Danakiran <danakiranali@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: adpki
+Architecture: amd64
+Depends:
+ ${misc:Depends},
+ passwd,
+ libc6,
+ php-cli
+Suggests:
+ nginx,
+ apache2,
+ php8.4-fpm,
+ php8.4-common,
+ php8.4-pgsql,
+ php8.4-xml,
+ php8.4-mbstring,
+ php8.4-curl,
+ php8.4-zip,
+ php8.4-bcmath,
+ php8.4-opcache,
+ php8.4-intl,
+ php8.4-readline,
+ postgresql-client-17,
+ postgresql-17,
+ curl,
+ jq,
+ ca-certificates,
+ gnupg,
+ lsb-release,
+ iproute2,
+ unzip,
+ xz-utils,
+ openssl
+Description: AD-PKI Debian Installer
+ AD-PKI installs the base files for the AD-PKI system.
+ .
+ The package provides configuration templates, systemd unit files,
+ installer scripts, filesystem layout preparation and command line tools.
+ .
+ Runtime components such as PHP, Nginx, Apache2, PostgreSQL, Node.js
+ and Go are installed later through the interactive adpki-install command.

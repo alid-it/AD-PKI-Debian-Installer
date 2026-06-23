@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -e
+
+COMMAND="${1:-help}"
+
+print_help() {
+    echo "AD-PKI CLI"
+    echo
+    echo "Usage:"
+    echo "  adpki status      Dienststatus anzeigen"
+    echo "  adpki restart     Alle Dienste neu starten"
+    echo "  adpki logs        Live-Logs anzeigen"
+    echo "  adpki update      Auf neueste Version aktualisieren"
+    echo
+}
+
+case "$COMMAND" in
+    status)
+        echo "AD-PKI Dienststatus:"
+        echo
+
+        for svc in nginx php8.4-fpm adpki-ca.service adpki-worker.service adpki-reverb.service adpki-scheduler.timer; do
+            printf "  %-30s" "$svc"
+            systemctl is-active "$svc" 2>/dev/null || true
+        done
+        ;;
+
+    restart)
+        echo "AD-PKI Dienste werden neu gestartet..."
+
+        systemctl restart adpki-ca.service || true
+        systemctl restart adpki-worker.service || true
+        systemctl restart adpki-reverb.service || true
+        systemctl restart adpki-scheduler.timer || true
+        systemctl restart php8.4-fpm || true
+        systemctl reload nginx || true
+
+        echo "Fertig."
+        ;;
+
+    logs)
+        journalctl -u adpki-ca.service -u adpki-worker.service -u adpki-reverb.service -u adpki-scheduler.service -f
+        ;;
+
+    update)
+        if [ -x /usr/bin/adpki-update ]; then
+            exec adpki-update
+        else
+            echo "adpki-update ist nicht installiert."
+            exit 1
+        fi
+        ;;
+
+    help|--help|-h)
+        print_help
+        ;;
+
+    *)
+        echo "Unbekannter Befehl: $COMMAND"
+        echo
+        print_help
+        exit 1
+        ;;
+esac

@@ -1,0 +1,14 @@
+package-files/etc/adpki/* etc/adpki/
+package-files/etc/nginx/sites-available/* etc/nginx/sites-available/
+package-files/usr/lib/systemd/system/* usr/lib/systemd/system/
+
+package-files/usr/bin/* usr/bin/
+
+package-files/usr/sbin/adpki-set-ntp usr/sbin/
+package-files/etc/sudoers.d/* etc/sudoers.d/
+package-files/usr/lib/adpki/installer/common.sh usr/lib/adpki/installer/
+package-files/usr/lib/adpki/installer/steps/* usr/lib/adpki/installer/steps/
+
+package-files/usr/lib/adpki/setup/common.sh usr/lib/adpki/setup/
+package-files/usr/lib/adpki/setup/steps/* usr/lib/adpki/setup/steps/
+

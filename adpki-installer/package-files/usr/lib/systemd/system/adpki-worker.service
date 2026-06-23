@@ -1,0 +1,24 @@
+[Unit]
+Description=AD-PKI Laravel Queue Worker
+After=network-online.target postgresql.service php8.4-fpm.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=adpki
+Group=adpki
+SupplementaryGroups=www-data
+WorkingDirectory=/opt/adpki/backend
+EnvironmentFile=/etc/adpki/backend.env
+ExecStart=/usr/bin/php artisan queue:work --sleep=3 --tries=3 --timeout=90
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/adpki/backend/storage /opt/adpki/backend/bootstrap/cache /var/lib/adpki /var/log/adpki
+
+[Install]
+WantedBy=multi-user.target
