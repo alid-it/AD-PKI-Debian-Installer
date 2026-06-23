@@ -71,7 +71,21 @@ jobs:
           find . -maxdepth 1 -type f -name "*.changes"   -exec cp {} release/ \;
 
           cd release
-          sha256sum *.deb > SHA256SUMS
+
+          VERSIONED_DEB="$(find . -maxdepth 1 -type f -name 'adpki_*_amd64.deb' | head -n1)"
+
+          if [ -z "$VERSIONED_DEB" ]; then
+            echo "No amd64 Debian package found."
+            exit 1
+          fi
+
+          cp "$VERSIONED_DEB" adpki_amd64.deb
+
+          sha256sum \
+            "$(basename "$VERSIONED_DEB")" \
+            adpki_amd64.deb \
+            > SHA256SUMS
+
           ls -lah
 
       - name: Upload package to central AD-PKI release
