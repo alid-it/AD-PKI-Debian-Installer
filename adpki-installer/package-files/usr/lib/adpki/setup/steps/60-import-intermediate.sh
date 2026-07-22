@@ -50,20 +50,39 @@ echo
 INTERMEDIATE_CRT="$(prompt_existing_file "Intermediate CA Zertifikat (.crt/.pem)")"
 INTERMEDIATE_KEY="$(prompt_existing_file "Intermediate CA Private Key (.key/.pem)")"
 
+# Prüfe, ob der Private Key mit einer Passphrase verschlüsselt ist.
+KEY_PASSPHRASE=""
+if head -5 "$INTERMEDIATE_KEY" | grep -qE "ENCRYPTED|DEK-Info"; then
+    echo
+    echo "Der Private Key ist mit einer Passphrase verschlüsselt."
+    read -rs -p "Passphrase eingeben: " KEY_PASSPHRASE 2>/dev/tty </dev/tty
+    echo
+    if [ -z "$KEY_PASSPHRASE" ]; then
+        echo "Fehler: Passphrase darf nicht leer sein für einen verschlüsselten Key."
+        exit 1
+    fi
+fi
+
 RESPONSE_FILE="$(mktemp)"
 trap 'rm -f "$RESPONSE_FILE"' EXIT
 
 echo
 echo "Importiere Intermediate CA..."
 
-HTTP_STATUS="$(
-    curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
-        -X POST "http://127.0.0.1/api/internal/import-intermediate" \
-        -H "Accept: application/json" \
-        -H "X-CA-Token: ${CA_TOKEN}" \
-        -F "intermediate=@${INTERMEDIATE_CRT}" \
-        -F "key=@${INTERMEDIATE_KEY}"
-)"
+CURL_ARGS=(
+    -sS -o "$RESPONSE_FILE" -w "%{http_code}"
+    -X POST "http://127.0.0.1/api/internal/import-intermediate"
+    -H "Accept: application/json"
+    -H "X-CA-Token: ${CA_TOKEN}"
+    -F "intermediate=@${INTERMEDIATE_CRT}"
+    -F "key=@${INTERMEDIATE_KEY}"
+)
+
+if [ -n "$KEY_PASSPHRASE" ]; then
+    CURL_ARGS+=(-F "passphrase=${KEY_PASSPHRASE}")
+fi
+
+HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"
 
 if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
     echo
