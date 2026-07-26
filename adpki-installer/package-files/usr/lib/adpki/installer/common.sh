@@ -3,7 +3,7 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-ADPKI_VERSION="0.1.21"
+ADPKI_VERSION="0.1.23"
 
 PHP_PACKAGE_MAJOR="8.4"
 PHP_MIN_VERSION="8.4.16"

@@ -14,6 +14,7 @@ require_command nslookup
 require_command ip
 
 CERTBOT_DIR="/etc/letsencrypt/live"
+ACME_WEBROOT="/var/lib/adpki/acme-webroot"
 WEB_CONF="/etc/nginx/sites-available/adpki.conf"
 WEB_HTTPS_TEMPLATE="/etc/nginx/sites-available/adpki-https.conf"
 
@@ -134,7 +135,7 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# Certbot ausführen – nginx kurz stoppen
+# Certbot ausführen – nginx bleibt für Backend und Challenge aktiv
 # ---------------------------------------------------------------------------
 
 echo "Fordere TLS-Zertifikat an..."
@@ -142,29 +143,20 @@ echo "  Domain:  ${DOMAIN}"
 echo "  E-Mail:  ${EMAIL}"
 echo "  CA:      http://127.0.0.1:8080/acme/directory"
 echo
-echo "nginx wird kurz gestoppt für die Challenge-Validierung..."
+echo "Bereite Certbot-Webroot vor..."
 
-NGINX_STOPPED=false
+install -d -o root -g adpki -m 750 "$ACME_WEBROOT"
+install -d -o root -g adpki -m 755 \
+    "$ACME_WEBROOT/.well-known" \
+    "$ACME_WEBROOT/.well-known/acme-challenge"
 
-cleanup_nginx() {
-    if [ "$NGINX_STOPPED" = true ]; then
-        echo
-        echo "Starte nginx wieder..."
-        systemctl start nginx || true
-        NGINX_STOPPED=false
-    fi
-}
-
-trap cleanup_nginx EXIT
-
-systemctl stop nginx
-NGINX_STOPPED=true
+nginx -t
+systemctl reload nginx
 
 if ! certbot certonly \
-    --standalone \
+    --webroot \
+    --webroot-path "$ACME_WEBROOT" \
     --preferred-challenges http \
-    --pre-hook "true" \
-    --post-hook "systemctl start nginx" \
     --server "http://127.0.0.1:8080/acme/directory" \
     --domain "$DOMAIN" \
     --email "$EMAIL" \
@@ -185,9 +177,6 @@ if ! certbot certonly \
     echo
     exit 1
 fi
-
-NGINX_STOPPED=false
-trap - EXIT
 
 echo "✅ TLS-Zertifikat erfolgreich ausgestellt."
 echo
@@ -220,27 +209,14 @@ echo "✅ nginx auf HTTPS umgestellt."
 echo
 
 # ---------------------------------------------------------------------------
-# Certbot renew Hooks einrichten
+# Veraltete Standalone-Renew-Hooks entfernen
 # ---------------------------------------------------------------------------
 
-echo "Richte Certbot Auto-Renew Hooks ein..."
-
-install -d -m 755 /etc/letsencrypt/renewal-hooks/pre
-install -d -m 755 /etc/letsencrypt/renewal-hooks/post
-
-cat > /etc/letsencrypt/renewal-hooks/pre/adpki-stop-nginx.sh <<'HOOK'
-#!/usr/bin/env bash
-systemctl stop nginx
-HOOK
-chmod 755 /etc/letsencrypt/renewal-hooks/pre/adpki-stop-nginx.sh
-
-cat > /etc/letsencrypt/renewal-hooks/post/adpki-start-nginx.sh <<'HOOK'
-#!/usr/bin/env bash
-systemctl start nginx
-HOOK
-chmod 755 /etc/letsencrypt/renewal-hooks/post/adpki-start-nginx.sh
-
-echo "✅ Renewal-Hooks gesetzt."
+echo "Entferne veraltete Standalone-Renew-Hooks..."
+rm -f \
+    /etc/letsencrypt/renewal-hooks/pre/adpki-stop-nginx.sh \
+    /etc/letsencrypt/renewal-hooks/post/adpki-start-nginx.sh
+echo "✅ Certbot erneuert Zertifikate per Webroot ohne Dienstunterbrechung."
 echo
 
 # ---------------------------------------------------------------------------

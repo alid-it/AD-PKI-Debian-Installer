@@ -53,7 +53,7 @@ fi
 PUBLIC_SCHEME="https"
 APP_URL="${PUBLIC_SCHEME}://${PUBLIC_HOST}"
 CA_URL="http://127.0.0.1:8080"
-BACKEND_URL="$APP_URL"
+BACKEND_URL="http://127.0.0.1"
 
 echo
 echo "APP_URL: ${APP_URL}"
