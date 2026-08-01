@@ -51,6 +51,12 @@ jobs:
           dpkg -l build-essential | tail -1
           dpkg-checkbuilddeps
 
+      - name: Validate maintainer scripts
+        working-directory: adpki-installer
+        run: |
+          bash -n debian/postinst
+          bash -n package-files/usr/lib/adpki/setup/steps/80-webui-tls.sh
+
       - name: Extract version
         id: version
         env:
@@ -117,6 +123,26 @@ jobs:
             > SHA256SUMS
 
           ls -lah
+
+      - name: Verify Nginx configuration ownership
+        run: |
+          set -euo pipefail
+
+          VERSIONED_DEB="$(find release -maxdepth 1 -type f -name 'adpki_[0-9]*_amd64.deb' | head -n1)"
+          CONTENTS="$(dpkg-deb --contents "$VERSIONED_DEB")"
+
+          grep -Fq './usr/share/adpki/nginx/templates/adpki.conf' <<< "$CONTENTS"
+          grep -Fq './usr/share/adpki/nginx/templates/adpki-https.conf' <<< "$CONTENTS"
+
+          if grep -Fq './etc/nginx/sites-available/adpki.conf' <<< "$CONTENTS"; then
+            echo 'The active AD-PKI Nginx site must not be shipped as a dpkg conffile.'
+            exit 1
+          fi
+
+          if grep -Fq './etc/nginx/sites-available/adpki-https.conf' <<< "$CONTENTS"; then
+            echo 'The AD-PKI HTTPS template must be installed under /usr/share.'
+            exit 1
+          fi
 
       - name: Upload package to central AD-PKI release
         env:

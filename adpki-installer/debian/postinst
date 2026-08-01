@@ -202,6 +202,7 @@ remove_legacy_revocation_locations() {
 update_managed_nginx_config() {
     local setup_env="/etc/adpki/setup.env"
     local target="/etc/nginx/sites-available/adpki.conf"
+    local initial_template="/usr/share/adpki/nginx/templates/adpki.conf"
     local snippets="/etc/nginx/adpki.d"
     local timestamp site_backup snippets_backup
 
@@ -213,6 +214,18 @@ update_managed_nginx_config() {
     timestamp="$(date +%Y%m%d_%H%M%S)"
     site_backup="${target}.bak.${timestamp}"
     snippets_backup="${snippets}.bak.${timestamp}"
+
+    # The active site is installation state, not a dpkg conffile. Create it
+    # from the packaged template only on first installation. Existing sites,
+    # including their domain and TLS certificate paths, are never replaced.
+    if [ ! -f "$target" ]; then
+        if [ ! -f "$initial_template" ]; then
+            echo "Warnung: Nginx-Template fehlt: ${initial_template}"
+            return 0
+        fi
+
+        install -o root -g root -m 644 "$initial_template" "$target"
+    fi
 
     if [ -f "$target" ]; then
         cp -a "$target" "$site_backup"

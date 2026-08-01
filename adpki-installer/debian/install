@@ -1,5 +1,5 @@
 package-files/etc/adpki/* etc/adpki/
-package-files/etc/nginx/sites-available/* etc/nginx/sites-available/
+package-files/etc/nginx/sites-available/* usr/share/adpki/nginx/templates/
 package-files/usr/lib/systemd/system/* usr/lib/systemd/system/
 
 package-files/usr/bin/* usr/bin/

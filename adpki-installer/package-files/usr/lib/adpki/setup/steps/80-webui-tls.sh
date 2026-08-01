@@ -16,7 +16,7 @@ require_command ip
 CERTBOT_DIR="/etc/letsencrypt/live"
 ACME_WEBROOT="/var/lib/adpki/acme-webroot"
 WEB_CONF="/etc/nginx/sites-available/adpki.conf"
-WEB_HTTPS_TEMPLATE="/etc/nginx/sites-available/adpki-https.conf"
+WEB_HTTPS_TEMPLATE="/usr/share/adpki/nginx/templates/adpki-https.conf"
 
 if [ ! -f "$WEB_HTTPS_TEMPLATE" ]; then
     echo "Fehler: HTTPS-Template nicht gefunden: ${WEB_HTTPS_TEMPLATE}"
