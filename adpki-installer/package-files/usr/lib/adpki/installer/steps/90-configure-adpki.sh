@@ -157,7 +157,7 @@ download_adpki_components() {
 
 hold_runtime_packages() {
     echo
-    echo "Sperre AD-PKI Runtime-DEB-Pakete gegen automatische Upgrades..."
+    echo "Sperre AD-PKI Runtime-Abhängigkeiten gegen automatische Upgrades..."
 
     if ! command -v apt-mark >/dev/null 2>&1; then
         echo "Warnung: apt-mark nicht gefunden. Paketsperre wird übersprungen."
@@ -166,8 +166,11 @@ hold_runtime_packages() {
 
     mkdir -p /etc/adpki
 
+    # Das Installer-Paket selbst wird über das offizielle AD-PKI-Repository
+    # aktualisiert und darf deshalb nicht auf APT-Hold stehen.
+    apt-mark unhold adpki >/dev/null 2>&1 || true
+
     local packages=(
-        adpki
         php8.4-cli
         php8.4-fpm
         php8.4-common

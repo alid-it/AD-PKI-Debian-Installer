@@ -87,6 +87,15 @@ systemd-Units und Installer-Skripte. Die vollständige Laufzeitumgebung wird
 erst im nächsten Schritt installiert. Spätere Paketaktualisierungen werden mit
 dem normalen `apt update` und `apt upgrade` eingespielt.
 
+Installationen, die ursprünglich mit Installer-Version `1.0.6` oder älter
+eingerichtet wurden, müssen eine frühere Paketsperre einmalig entfernen:
+
+```bash
+sudo apt-mark unhold adpki
+```
+
+Neuere Installer setzen das `adpki`-Paket nicht mehr auf Hold.
+
 ### 2. Laufzeitumgebung installieren
 
 ```bash

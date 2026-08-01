@@ -86,6 +86,15 @@ systemd units, and installer scripts. It does not install the complete runtime
 yet. Later package updates are installed by the normal `apt update` and
 `apt upgrade` process.
 
+Installations originally provisioned with installer version `1.0.6` or older
+must remove the previous package hold once:
+
+```bash
+sudo apt-mark unhold adpki
+```
+
+Newer installers no longer place the `adpki` package on hold.
+
 ### 2. Install the runtime
 
 ```bash

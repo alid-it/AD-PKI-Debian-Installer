@@ -127,6 +127,15 @@ sudo apt update
 sudo apt upgrade
 ```
 
+Installationen, die ursprünglich mit Installer-Version `1.0.6` oder älter
+eingerichtet wurden, entfernen vorher einmalig die alte Paketsperre:
+
+```bash
+sudo apt-mark unhold adpki
+```
+
+Danach wird `adpki` bei normalen Systemupdates berücksichtigt.
+
 ## Schlüsselwechsel
 
 Einen Ersatzschlüssel veröffentlichen, bevor ausschließlich mit diesem neuen
