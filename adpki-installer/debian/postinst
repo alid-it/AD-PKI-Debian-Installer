@@ -161,6 +161,44 @@ ensure_managed_nginx_includes() {
     rm -f "$rendered"
 }
 
+remove_legacy_revocation_locations() {
+    local target="/etc/nginx/sites-available/adpki.conf"
+    local rendered
+
+    if [ ! -f "$target" ]; then
+        return 0
+    fi
+
+    rendered="$(mktemp /etc/nginx/sites-available/.adpki.conf.XXXXXX)"
+
+    if ! awk '
+        /^[[:space:]]*location[[:space:]]*=[[:space:]]*\/ocsp[[:space:]]*\{/ ||
+        /^[[:space:]]*location[[:space:]]*\^~[[:space:]]*\/crl\/[[:space:]]*\{/ {
+            skipping = 1
+            depth = 1
+            next
+        }
+        skipping {
+            opens = gsub(/\{/, "{")
+            closes = gsub(/\}/, "}")
+            depth += opens - closes
+            if (depth <= 0) {
+                skipping = 0
+            }
+            next
+        }
+        { print }
+        END { if (skipping) exit 42 }
+    ' "$target" > "$rendered"; then
+        rm -f "$rendered"
+        echo "Warnung: Veraltete CRL-/OCSP-Blöcke konnten nicht sicher entfernt werden."
+        return 1
+    fi
+
+    install -o root -g root -m 644 "$rendered" "$target"
+    rm -f "$rendered"
+}
+
 update_managed_nginx_config() {
     local setup_env="/etc/adpki/setup.env"
     local target="/etc/nginx/sites-available/adpki.conf"
@@ -186,7 +224,9 @@ update_managed_nginx_config() {
 
     install_managed_nginx_snippets
 
-    if ! ensure_managed_nginx_includes || ! nginx -t >/dev/null 2>&1; then
+    if ! remove_legacy_revocation_locations || \
+       ! ensure_managed_nginx_includes || \
+       ! nginx -t >/dev/null 2>&1; then
         echo "Warnung: Nginx-Update ist ungültig. Vorheriger Zustand wird wiederhergestellt."
 
         if [ -f "$site_backup" ]; then
