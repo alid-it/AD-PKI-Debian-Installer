@@ -279,6 +279,11 @@ log "Installiere PHP-Abhängigkeiten..."
 mkdir -p /var/lib/adpki/.composer-cache
 chown -R www-data:www-data /var/lib/adpki/.composer-cache
 
+# Das Release-Archiv wird als root entpackt. Laravel muss bereits waehrend
+# composer package:discover in bootstrap/cache schreiben koennen.
+install -d -o adpki -g www-data -m 750 /opt/adpki/backend/bootstrap
+install -d -o www-data -g www-data -m 2770 /opt/adpki/backend/bootstrap/cache
+
 mkdir -p /opt/adpki/backend/vendor
 chown -R www-data:www-data /opt/adpki/backend/vendor
 
