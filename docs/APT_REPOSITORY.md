@@ -45,7 +45,7 @@ nicht innerhalb von GitHub Actions:
 
 ```bash
 gpg --quick-generate-key \
-  "AD-PKI Debian Repository <packages@adpki.de>" \
+  "AD-PKI Debian Repository <danakiranali@gmail.com>" \
   rsa4096 sign 2y
 
 gpg --list-secret-keys \
