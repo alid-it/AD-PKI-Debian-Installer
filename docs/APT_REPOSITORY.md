@@ -127,14 +127,17 @@ sudo apt update
 sudo apt upgrade
 ```
 
-Installationen, die ursprünglich mit Installer-Version `1.0.6` oder älter
-eingerichtet wurden, entfernen vorher einmalig die alte Paketsperre:
+Installationen, die ursprünglich mit Installer-Version `1.0.7` oder älter
+eingerichtet wurden, entfernen vorher einmalig die alten Paketsperren:
 
 ```bash
-sudo apt-mark unhold adpki
+if [ -s /etc/adpki/held-packages.list ]; then
+  xargs -r sudo apt-mark unhold < /etc/adpki/held-packages.list
+fi
 ```
 
-Danach wird `adpki` bei normalen Systemupdates berücksichtigt.
+Danach werden AD-PKI und seine versionsgebundenen Runtime-Pakete bei normalen
+Systemupdates berücksichtigt.
 
 ## Schlüsselwechsel
 

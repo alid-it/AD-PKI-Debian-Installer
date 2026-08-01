@@ -86,14 +86,17 @@ systemd units, and installer scripts. It does not install the complete runtime
 yet. Later package updates are installed by the normal `apt update` and
 `apt upgrade` process.
 
-Installations originally provisioned with installer version `1.0.6` or older
-must remove the previous package hold once:
+Installations originally provisioned with installer version `1.0.7` or older
+must remove the previous package holds once:
 
 ```bash
-sudo apt-mark unhold adpki
+if [ -s /etc/adpki/held-packages.list ]; then
+  xargs -r sudo apt-mark unhold < /etc/adpki/held-packages.list
+fi
 ```
 
-Newer installers no longer place the `adpki` package on hold.
+Newer installers no longer place AD-PKI or its versioned runtime dependencies
+on hold.
 
 ### 2. Install the runtime
 

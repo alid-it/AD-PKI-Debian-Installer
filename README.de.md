@@ -87,14 +87,17 @@ systemd-Units und Installer-Skripte. Die vollständige Laufzeitumgebung wird
 erst im nächsten Schritt installiert. Spätere Paketaktualisierungen werden mit
 dem normalen `apt update` und `apt upgrade` eingespielt.
 
-Installationen, die ursprünglich mit Installer-Version `1.0.6` oder älter
-eingerichtet wurden, müssen eine frühere Paketsperre einmalig entfernen:
+Installationen, die ursprünglich mit Installer-Version `1.0.7` oder älter
+eingerichtet wurden, müssen frühere Paketsperren einmalig entfernen:
 
 ```bash
-sudo apt-mark unhold adpki
+if [ -s /etc/adpki/held-packages.list ]; then
+  xargs -r sudo apt-mark unhold < /etc/adpki/held-packages.list
+fi
 ```
 
-Neuere Installer setzen das `adpki`-Paket nicht mehr auf Hold.
+Neuere Installer setzen weder AD-PKI noch seine versionsgebundenen
+Runtime-Abhängigkeiten auf Hold.
 
 ### 2. Laufzeitumgebung installieren
 

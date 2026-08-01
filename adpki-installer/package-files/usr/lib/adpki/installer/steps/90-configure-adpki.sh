@@ -155,22 +155,19 @@ download_adpki_components() {
     echo "Alle Komponenten erfolgreich geladen und geprüft."
 }
 
-hold_runtime_packages() {
+release_legacy_runtime_holds() {
     echo
-    echo "Sperre AD-PKI Runtime-Abhängigkeiten gegen automatische Upgrades..."
+    echo "Entferne veraltete AD-PKI-Paketsperren..."
 
     if ! command -v apt-mark >/dev/null 2>&1; then
-        echo "Warnung: apt-mark nicht gefunden. Paketsperre wird übersprungen."
+        echo "Warnung: apt-mark nicht gefunden. Bereinigung wird übersprungen."
         return 0
     fi
 
     mkdir -p /etc/adpki
 
-    # Das Installer-Paket selbst wird über das offizielle AD-PKI-Repository
-    # aktualisiert und darf deshalb nicht auf APT-Hold stehen.
-    apt-mark unhold adpki >/dev/null 2>&1 || true
-
     local packages=(
+        adpki
         php8.4-cli
         php8.4-fpm
         php8.4-common
@@ -192,29 +189,18 @@ hold_runtime_packages() {
         packages+=(postgresql-17 postgresql-common postgresql-client-common)
     fi
 
-    : > /etc/adpki/held-packages.list
-
-    stop_unattended_upgrades
-
     for package in "${packages[@]}"; do
-        if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
-            echo "Sperre Paket: ${package}"
-            apt-mark hold "$package" >/dev/null
-            echo "$package" >> /etc/adpki/held-packages.list
-        else
-            echo "Überspringe nicht installiertes Paket: ${package}"
+        if apt-mark showhold | grep -Fxq "$package"; then
+            echo "Entsperre Paket: ${package}"
+            apt-mark unhold "$package" >/dev/null
         fi
     done
 
+    : > /etc/adpki/held-packages.list
     chmod 640 /etc/adpki/held-packages.list
     chown root:adpki /etc/adpki/held-packages.list 2>/dev/null || chown root:root /etc/adpki/held-packages.list
 
-    echo
-    echo "Gesperrte Pakete:"
-    cat /etc/adpki/held-packages.list || true
-
-    echo
-    echo "Paketsperre OK."
+    echo "AD-PKI-Paketsperren wurden entfernt."
 }
 
 # ============================================================
@@ -359,8 +345,8 @@ if [ -d /opt/adpki/backend/bootstrap/cache ]; then
 fi
 
 # ------------------------------------------------------------
-# 4. Pakete sperren
+# 4. Veraltete Paketsperren entfernen
 # ------------------------------------------------------------
-hold_runtime_packages
+release_legacy_runtime_holds
 
 echo "AD-PKI-Konfiguration-Step OK."
