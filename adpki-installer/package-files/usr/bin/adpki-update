@@ -45,6 +45,17 @@ get_local_version() {
     local version_file
 
     case "$component" in
+        installer)
+            if dpkg-query -W -f='${Version}' adpki >/dev/null 2>&1; then
+                local package_version
+                package_version="$(dpkg-query -W -f='${Version}' adpki)"
+                package_version="${package_version%%-*}"
+                echo "v${package_version}"
+            else
+                echo "unknown"
+            fi
+            return
+            ;;
         ca)       version_file="/opt/adpki/ca-core/VERSION" ;;
         backend)  version_file="/opt/adpki/backend/VERSION" ;;
         frontend) version_file="/opt/adpki/frontend/dist/VERSION" ;;
@@ -56,6 +67,54 @@ get_local_version() {
     else
         echo "unknown"
     fi
+}
+
+download_verified_release_file() {
+    local name="$1"
+    local repo="$2"
+    local asset_name="$3"
+    local destination="$4"
+
+    local api_url asset_url sha_url tmp_dir sums_path
+
+    api_url="https://api.github.com/repos/${GITHUB_ORG}/${repo}/releases/latest"
+    tmp_dir="$(mktemp -d)"
+    sums_path="${tmp_dir}/SHA256SUMS"
+
+    log "Suche Release-Asset für ${name}..."
+
+    asset_url="$(curl -fsSL "$api_url" \
+        | grep "browser_download_url.*${asset_name}\"" \
+        | cut -d'"' -f4 \
+        | head -1)"
+
+    sha_url="$(curl -fsSL "$api_url" \
+        | grep "browser_download_url.*SHA256SUMS\"" \
+        | cut -d'"' -f4 \
+        | head -1)"
+
+    if [ -z "$asset_url" ] || [ -z "$sha_url" ]; then
+        rm -rf "$tmp_dir"
+        err "Release-Asset oder SHA256SUMS nicht gefunden: ${asset_name}"
+    fi
+
+    curl -fL --progress-bar -o "$destination" "$asset_url"
+    curl -fsSL -o "$sums_path" "$sha_url"
+
+    if ! awk -v file="$asset_name" '
+        {
+            candidate=$2
+            sub(/^\*/, "", candidate)
+            if (candidate == file) print $0
+        }
+    ' "$sums_path" | (cd "$(dirname "$destination")" && sha256sum -c -); then
+        rm -rf "$tmp_dir"
+        rm -f "$destination"
+        err "SHA256-Prüfung fehlgeschlagen: ${name}"
+    fi
+
+    rm -rf "$tmp_dir"
+    ok "${name} erfolgreich heruntergeladen und geprüft."
 }
 
 download_verified_release_asset() {
@@ -151,26 +210,32 @@ echo
 log "Prüfe verfügbare Updates..."
 echo
 
+INSTALLER_LATEST="$(get_github_latest AD-PKI)"
 CA_LATEST="$(get_github_latest AD-PKI-CA)"
 BACKEND_LATEST="$(get_github_latest AD-PKI-Backend)"
 FRONTEND_LATEST="$(get_github_latest AD-PKI-Frontend)"
 
-if [ -z "$CA_LATEST" ] || [ -z "$BACKEND_LATEST" ] || [ -z "$FRONTEND_LATEST" ]; then
+if [ -z "$INSTALLER_LATEST" ] || [ -z "$CA_LATEST" ] || [ -z "$BACKEND_LATEST" ] || [ -z "$FRONTEND_LATEST" ]; then
     err "GitHub API nicht erreichbar oder kein Release gefunden."
 fi
 
+INSTALLER_LOCAL="$(get_local_version installer)"
 CA_LOCAL="$(get_local_version ca)"
 BACKEND_LOCAL="$(get_local_version backend)"
 FRONTEND_LOCAL="$(get_local_version frontend)"
 
 printf "  %-12s %-18s %-18s\n" "Komponente" "Lokal" "GitHub Latest"
 printf "  %-12s %-18s %-18s\n" "----------" "-----" "-------------"
+printf "  %-12s %-18s %-18s\n" "Installer" "$INSTALLER_LOCAL" "$INSTALLER_LATEST"
 printf "  %-12s %-18s %-18s\n" "CA"       "$CA_LOCAL"       "$CA_LATEST"
 printf "  %-12s %-18s %-18s\n" "Backend"  "$BACKEND_LOCAL"  "$BACKEND_LATEST"
 printf "  %-12s %-18s %-18s\n" "Frontend" "$FRONTEND_LOCAL" "$FRONTEND_LATEST"
 echo
 
-if [ "$CA_LOCAL" = "$CA_LATEST" ] && [ "$BACKEND_LOCAL" = "$BACKEND_LATEST" ] && [ "$FRONTEND_LOCAL" = "$FRONTEND_LATEST" ]; then
+if [ "$INSTALLER_LOCAL" = "$INSTALLER_LATEST" ] && \
+   [ "$CA_LOCAL" = "$CA_LATEST" ] && \
+   [ "$BACKEND_LOCAL" = "$BACKEND_LATEST" ] && \
+   [ "$FRONTEND_LOCAL" = "$FRONTEND_LATEST" ]; then
     ok "Alle Komponenten sind aktuell. Kein Update erforderlich."
     exit 0
 fi
@@ -208,7 +273,29 @@ else
 fi
 
 # ============================================================
-# 2. Services stoppen
+# 2. Installer-Paket aktualisieren
+# ============================================================
+
+if [ "$INSTALLER_LOCAL" != "$INSTALLER_LATEST" ]; then
+    log "Aktualisiere AD-PKI Installer-Paket..."
+
+    INSTALLER_TMP_DIR="$(mktemp -d)"
+    INSTALLER_DEB="${INSTALLER_TMP_DIR}/adpki_amd64.deb"
+
+    download_verified_release_file \
+        "AD-PKI Installer" \
+        "AD-PKI" \
+        "adpki_amd64.deb" \
+        "$INSTALLER_DEB"
+
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confold -i "$INSTALLER_DEB"
+    rm -rf "$INSTALLER_TMP_DIR"
+
+    ok "Installer-Paket auf ${INSTALLER_LATEST} aktualisiert."
+fi
+
+# ============================================================
+# 3. Services stoppen
 # ============================================================
 
 log "Stoppe AD-PKI Services..."
@@ -220,7 +307,7 @@ systemctl stop adpki-ca.service 2>/dev/null || true
 ok "Services gestoppt."
 
 # ============================================================
-# 3. CA Binary Update
+# 4. CA Binary Update
 # ============================================================
 
 log "Update CA-Binary..."
@@ -242,7 +329,7 @@ chmod 640 /opt/adpki/ca-core/VERSION
 ok "CA-Binary aktualisiert."
 
 # ============================================================
-# 4. Backend Update
+# 5. Backend Update
 # ============================================================
 
 log "Update Backend..."
@@ -300,7 +387,7 @@ chmod 640 /opt/adpki/backend/VERSION
 ok "Backend aktualisiert."
 
 # ============================================================
-# 5. Migrationen prüfen und ausführen
+# 6. Migrationen prüfen und ausführen
 # ============================================================
 
 log "Prüfe Datenbank-Migrationen..."
@@ -322,7 +409,7 @@ runuser -u www-data -- php /opt/adpki/backend/artisan cache:clear
 runuser -u www-data -- php /opt/adpki/backend/artisan route:clear
 
 # ============================================================
-# 6. Frontend Update
+# 7. Frontend Update
 # ============================================================
 
 log "Update Frontend..."
@@ -353,7 +440,7 @@ chmod 640 /opt/adpki/frontend/dist/VERSION
 ok "Frontend aktualisiert."
 
 # ============================================================
-# 7. Permissions korrigieren
+# 8. Permissions korrigieren
 # ============================================================
 
 log "Korrigiere Permissions..."
@@ -445,7 +532,7 @@ find /var/lib/adpki/issued/ -name "private.key" \
 ok "Permissions gesetzt."
 
 # ============================================================
-# 8. Services starten
+# 9. Services starten
 # ============================================================
 
 log "Starte AD-PKI Services..."
@@ -459,7 +546,7 @@ systemctl reload nginx
 ok "Services gestartet."
 
 # ============================================================
-# 9. Erreichbarkeit prüfen
+# 10. Erreichbarkeit prüfen
 # ============================================================
 
 echo
@@ -488,6 +575,7 @@ echo "========================================"
 echo "  AD-PKI Update abgeschlossen"
 echo "========================================"
 echo
+echo "  Installer: ${INSTALLER_LATEST}"
 echo "  CA:       ${CA_LATEST}"
 echo "  Backend:  ${BACKEND_LATEST}"
 echo "  Frontend: ${FRONTEND_LATEST}"

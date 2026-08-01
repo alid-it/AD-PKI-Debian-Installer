@@ -213,6 +213,7 @@ set_initial_settings() {
 
     # Slash am Ende entfernen
     app_url="${app_url%/}"
+    local public_http_url="${app_url/#https:\/\//http://}"
 
     echo
     echo "Setze initiale Settings..."
@@ -226,8 +227,8 @@ set_initial_settings() {
         -c "
 INSERT INTO settings (key, value, created_at, updated_at) VALUES
     ('base_url',      '${app_url}',                       NOW(), NOW()),
-    ('crl_base_url',  '${app_url}/crl',                   NOW(), NOW()),
-    ('ocsp_base_url', '${app_url}/ocsp',                  NOW(), NOW()),
+    ('crl_base_url',  '${public_http_url}/api/crl',        NOW(), NOW()),
+    ('ocsp_base_url', '${public_http_url}/api/ocsp',       NOW(), NOW()),
     ('acme_url',      '${app_url}/acme/directory',        NOW(), NOW()),
     ('tsa_url',       '${app_url}/timestamp',             NOW(), NOW())
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();

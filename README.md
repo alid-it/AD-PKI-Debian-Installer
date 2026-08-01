@@ -58,17 +58,33 @@ against their published `SHA256SUMS`.
 
 ## Installation
 
-### 1. Install the Debian package
+### 1. Configure the official APT repository
 
-Download or build the package, then install it:
+Install the repository key with trust scoped only to the AD-PKI package source:
 
 ```bash
-sudo apt install ./adpki_<version>_amd64.deb
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://packages.adpki.de/adpki-archive-keyring.asc \
+  | sudo tee /etc/apt/keyrings/adpki.asc >/dev/null
+sudo chmod 0644 /etc/apt/keyrings/adpki.asc
+
+sudo tee /etc/apt/sources.list.d/adpki.sources >/dev/null <<'EOF'
+Types: deb
+URIs: https://packages.adpki.de
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/adpki.asc
+EOF
+
+sudo apt update
+sudo apt install adpki
 ```
 
 Installing the package adds the AD-PKI commands, configuration templates,
 systemd units, and installer scripts. It does not install the complete runtime
-yet.
+yet. Later package updates are installed by the normal `apt update` and
+`apt upgrade` process.
 
 ### 2. Install the runtime
 
@@ -130,11 +146,14 @@ sudo adpki update
 | `adpki status` | Show the status of Nginx, PHP-FPM, and AD-PKI services |
 | `adpki restart` | Restart the AD-PKI runtime services |
 | `adpki logs` | Follow the systemd logs of the application services |
-| `adpki update` | Update CA Core, Backend, and Frontend from GitHub releases |
+| `adpki update` | Update the installer, Nginx template, CA Core, Backend, and Frontend from GitHub releases |
 
 The updater asks for confirmation, checks SHA-256 sums, runs pending database
 migrations, and attempts to create a database backup before changing the
-installed components.
+installed components. Installer upgrades update only package-managed files
+under `/etc/nginx/adpki.d/`. The existing site, including its domain, TLS
+paths, and custom entries, is preserved; include points are added once.
+Changes are backed up and activated only after a successful `nginx -t` check.
 
 ## Files and directories
 

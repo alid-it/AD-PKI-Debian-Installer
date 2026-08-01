@@ -2,9 +2,23 @@ name: Release Debian Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Debian package version without the leading v
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
 
 jobs:
   build-deb:
@@ -19,9 +33,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            apt-utils \
             build-essential \
             devscripts \
             fakeroot \
+            gnupg \
             dpkg-dev
 
       - name: Install package build-deps
@@ -37,10 +53,24 @@ jobs:
 
       - name: Extract version
         id: version
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="${MANUAL_VERSION#v}"
+            TAG="v${VERSION}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAG="$GITHUB_REF_NAME"
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+~.-][0-9A-Za-z.+~:-]+)?$ ]]; then
+            echo "Invalid Debian package version: $VERSION"
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Update Debian changelog version
         working-directory: adpki-installer
@@ -106,3 +136,87 @@ jobs:
             release/SHA256SUMS \
             --repo alid-it/AD-PKI \
             --clobber
+
+      - name: Collect versioned packages for APT
+        env:
+          GH_TOKEN: ${{ secrets.ADPKI_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p apt-packages
+          cp release/adpki_[0-9]*_amd64.deb apt-packages/
+
+          gh api --paginate '/repos/alid-it/AD-PKI/releases?per_page=100' \
+            --jq '.[].tag_name' \
+          | while IFS= read -r tag; do
+              gh release download "$tag" \
+                --repo alid-it/AD-PKI \
+                --pattern 'adpki_[0-9]*_amd64.deb' \
+                --dir apt-packages \
+                --skip-existing \
+              || true
+            done
+
+          find apt-packages -maxdepth 1 -type f -name '*.deb' -print
+
+      - name: Build APT repository metadata
+        run: |
+          chmod +x scripts/build-apt-repository.sh
+          scripts/build-apt-repository.sh apt-packages apt-repository
+
+      - name: Sign APT repository metadata
+        id: signing
+        env:
+          APT_SIGNING_PRIVATE_KEY: ${{ secrets.APT_SIGNING_PRIVATE_KEY }}
+          APT_SIGNING_KEY_FINGERPRINT: ${{ secrets.APT_SIGNING_KEY_FINGERPRINT }}
+          APT_SIGNING_KEY_PASSPHRASE: ${{ secrets.APT_SIGNING_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$APT_SIGNING_PRIVATE_KEY" ] || [ -z "$APT_SIGNING_KEY_FINGERPRINT" ]; then
+            echo "APT signing secrets are not configured."
+            exit 1
+          fi
+
+          install -d -m 0700 "$HOME/.gnupg"
+          printf '%s\n' "$APT_SIGNING_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --list-secret-keys "$APT_SIGNING_KEY_FINGERPRINT" >/dev/null
+
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$APT_SIGNING_KEY_PASSPHRASE" \
+            --local-user "$APT_SIGNING_KEY_FINGERPRINT" \
+            --clearsign \
+            --output apt-repository/dists/stable/InRelease \
+            apt-repository/dists/stable/Release
+
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$APT_SIGNING_KEY_PASSPHRASE" \
+            --local-user "$APT_SIGNING_KEY_FINGERPRINT" \
+            --armor --detach-sign \
+            --output apt-repository/dists/stable/Release.gpg \
+            apt-repository/dists/stable/Release
+
+          gpg --batch --armor --export "$APT_SIGNING_KEY_FINGERPRINT" \
+            > apt-repository/adpki-archive-keyring.asc
+
+          echo "fingerprint=$APT_SIGNING_KEY_FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload APT repository as Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: apt-repository
+
+  deploy-apt-repository:
+    name: Deploy APT repository
+    needs: build-deb
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

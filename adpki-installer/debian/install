@@ -11,4 +11,4 @@ package-files/usr/lib/adpki/installer/steps/* usr/lib/adpki/installer/steps/
 
 package-files/usr/lib/adpki/setup/common.sh usr/lib/adpki/setup/
 package-files/usr/lib/adpki/setup/steps/* usr/lib/adpki/setup/steps/
-
+package-files/usr/share/adpki/nginx/snippets/http-server/* usr/share/adpki/nginx/snippets/http-server/

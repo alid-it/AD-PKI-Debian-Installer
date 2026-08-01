@@ -59,17 +59,33 @@ veröffentlichten `SHA256SUMS` geprüft.
 
 ## Installation
 
-### 1. Debian-Paket installieren
+### 1. Offizielles APT-Repository einrichten
 
-Paket herunterladen oder selbst bauen und anschließend installieren:
+Repository-Schlüssel ausschließlich für die AD-PKI-Paketquelle hinterlegen:
 
 ```bash
-sudo apt install ./adpki_<version>_amd64.deb
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://packages.adpki.de/adpki-archive-keyring.asc \
+  | sudo tee /etc/apt/keyrings/adpki.asc >/dev/null
+sudo chmod 0644 /etc/apt/keyrings/adpki.asc
+
+sudo tee /etc/apt/sources.list.d/adpki.sources >/dev/null <<'EOF'
+Types: deb
+URIs: https://packages.adpki.de
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/adpki.asc
+EOF
+
+sudo apt update
+sudo apt install adpki
 ```
 
 Das Paket installiert die AD-PKI-Befehle, Konfigurationsvorlagen,
 systemd-Units und Installer-Skripte. Die vollständige Laufzeitumgebung wird
-erst im nächsten Schritt installiert.
+erst im nächsten Schritt installiert. Spätere Paketaktualisierungen werden mit
+dem normalen `apt update` und `apt upgrade` eingespielt.
 
 ### 2. Laufzeitumgebung installieren
 
@@ -134,11 +150,15 @@ sudo adpki update
 | `adpki status` | Status von Nginx, PHP-FPM und AD-PKI-Diensten anzeigen |
 | `adpki restart` | AD-PKI-Laufzeitdienste neu starten |
 | `adpki logs` | systemd-Logs der Anwendungsdienste live anzeigen |
-| `adpki update` | CA Core, Backend und Frontend aus GitHub-Releases aktualisieren |
+| `adpki update` | Installer, Nginx-Template, CA Core, Backend und Frontend aus GitHub-Releases aktualisieren |
 
 Der Updater fragt vor Änderungen nach einer Bestätigung, prüft
 SHA-256-Prüfsummen, führt ausstehende Datenbankmigrationen aus und versucht,
-vorher ein Datenbank-Backup zu erstellen.
+vorher ein Datenbank-Backup zu erstellen. Bei Installer-Upgrades werden nur
+die paketverwalteten Dateien unter `/etc/nginx/adpki.d/` aktualisiert. Die
+bestehende Site mit Domain, TLS-Pfaden und eigenen Einträgen bleibt erhalten;
+Include-Punkte werden einmalig ergänzt. Änderungen werden gesichert und nur
+nach erfolgreichem `nginx -t` aktiviert.
 
 ## Dateien und Verzeichnisse
 

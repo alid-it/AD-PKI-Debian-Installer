@@ -77,6 +77,139 @@ systemd_reload_or_restart() {
     fi
 }
 
+install_managed_nginx_snippets() {
+    local source_root="/usr/share/adpki/nginx/snippets"
+    local target_root="/etc/nginx/adpki.d"
+    local manifest="${target_root}/.managed-files"
+    local new_manifest relative source_file target_file
+
+    install -d -o root -g root -m 755 \
+        "$target_root" \
+        "$target_root/http-server" \
+        "$target_root/https-server"
+
+    if [ -f "$manifest" ]; then
+        while IFS= read -r relative; do
+            if [ -n "$relative" ]; then
+                rm -f "${target_root}/${relative}"
+            fi
+        done < "$manifest"
+    fi
+
+    new_manifest="$(mktemp "${target_root}/.managed-files.XXXXXX")"
+
+    if [ -d "$source_root" ]; then
+        while IFS= read -r source_file; do
+            relative="${source_file#${source_root}/}"
+            target_file="${target_root}/${relative}"
+
+            install -d -o root -g root -m 755 "$(dirname "$target_file")"
+            install -o root -g root -m 644 "$source_file" "$target_file"
+            printf '%s\n' "$relative" >> "$new_manifest"
+        done < <(find "$source_root" -type f -name '*.conf' | sort)
+    fi
+
+    install -o root -g root -m 644 "$new_manifest" "$manifest"
+    rm -f "$new_manifest"
+}
+
+ensure_managed_nginx_includes() {
+    local target="/etc/nginx/sites-available/adpki.conf"
+    local rendered has_http=0 has_https=0
+
+    if [ "${ADPKI_TLS_CONFIGURED:-false}" != "true" ] || [ ! -f "$target" ]; then
+        return 0
+    fi
+
+    if grep -Fq 'include /etc/nginx/adpki.d/http-server/*.conf;' "$target"; then
+        has_http=1
+    fi
+
+    if grep -Fq 'include /etc/nginx/adpki.d/https-server/*.conf;' "$target"; then
+        has_https=1
+    fi
+
+    if [ "$has_http" -eq 1 ] && [ "$has_https" -eq 1 ]; then
+        return 0
+    fi
+
+    rendered="$(mktemp /etc/nginx/sites-available/.adpki.conf.XXXXXX)"
+
+    if ! awk -v has_http="$has_http" -v has_https="$has_https" '
+        /^[[:space:]]*location \/ \{/ {
+            root_locations++
+
+            if (root_locations == 1 && has_http == 0) {
+                print "    # Package-managed AD-PKI HTTP extensions."
+                print "    include /etc/nginx/adpki.d/http-server/*.conf;"
+                print ""
+            } else if (root_locations == 2 && has_https == 0) {
+                print "    # Package-managed AD-PKI HTTPS extensions."
+                print "    include /etc/nginx/adpki.d/https-server/*.conf;"
+                print ""
+            }
+        }
+        { print }
+        END { if (root_locations < 2) exit 42 }
+    ' "$target" > "$rendered"; then
+        rm -f "$rendered"
+        echo "Warnung: Include-Punkte konnten nicht sicher in adpki.conf eingefügt werden."
+        return 1
+    fi
+
+    install -o root -g root -m 644 "$rendered" "$target"
+    rm -f "$rendered"
+}
+
+update_managed_nginx_config() {
+    local setup_env="/etc/adpki/setup.env"
+    local target="/etc/nginx/sites-available/adpki.conf"
+    local snippets="/etc/nginx/adpki.d"
+    local timestamp site_backup snippets_backup
+
+    if [ -f "$setup_env" ]; then
+        # shellcheck disable=SC1091
+        . "$setup_env"
+    fi
+
+    timestamp="$(date +%Y%m%d_%H%M%S)"
+    site_backup="${target}.bak.${timestamp}"
+    snippets_backup="${snippets}.bak.${timestamp}"
+
+    if [ -f "$target" ]; then
+        cp -a "$target" "$site_backup"
+    fi
+
+    if [ -d "$snippets" ]; then
+        cp -a "$snippets" "$snippets_backup"
+    fi
+
+    install_managed_nginx_snippets
+
+    if ! ensure_managed_nginx_includes || ! nginx -t >/dev/null 2>&1; then
+        echo "Warnung: Nginx-Update ist ungültig. Vorheriger Zustand wird wiederhergestellt."
+
+        if [ -f "$site_backup" ]; then
+            cp -a "$site_backup" "$target"
+        fi
+
+        rm -rf "$snippets"
+        if [ -d "$snippets_backup" ]; then
+            cp -a "$snippets_backup" "$snippets"
+        fi
+
+        return 0
+    fi
+
+    echo "Verwaltete Nginx-Snippets wurden aktualisiert."
+    if [ -f "$site_backup" ]; then
+        echo "Site-Backup: ${site_backup}"
+    fi
+    if [ -d "$snippets_backup" ]; then
+        echo "Snippet-Backup: ${snippets_backup}"
+    fi
+}
+
 case "$1" in
     configure)
         echo "Configuring AD-PKI..."
@@ -347,6 +480,8 @@ EOF
             if command -v nginx >/dev/null 2>&1; then
                 install -d -m 755 /etc/nginx/sites-available
                 install -d -m 755 /etc/nginx/sites-enabled
+
+                update_managed_nginx_config
 
                 if [ -f /etc/nginx/sites-available/adpki.conf ]; then
                     ln -sfn /etc/nginx/sites-available/adpki.conf /etc/nginx/sites-enabled/000-adpki.conf

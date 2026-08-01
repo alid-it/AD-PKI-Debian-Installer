@@ -13,6 +13,9 @@ release/
 dist/
 build/
 out/
+apt-packages/
+apt-repository/
+adpki-installer/debian/debhelper-build-stamp
 
 # Debian build output
 adpki-installer_*/
@@ -41,6 +44,7 @@ Thumbs.db
 
 
 # Certificates / keys - niemals committen
+*-private.asc
 *.key
 *.pem
 *.p12
